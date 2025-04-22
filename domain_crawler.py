@@ -29,7 +29,7 @@ def crawl_domain(driver, url, toolName):
                 )
                 buttons = driver.find_elements(By.XPATH, "//a[contains(@class, 'brxe-button')]")
                 article = next(
-                    (b for b in buttons if b.get_attribute("href") and not b.get_attribute("href").startswith("http://saasaitools.com")),
+                    (b for b in buttons if b.get_attribute("href") and not b.get_attribute("href").startswith("https://saasaitools.com")),
                     None
                 )
                 if article:
@@ -62,7 +62,7 @@ def crawl_domain(driver, url, toolName):
 
 def main():
     # Load the CSV
-    df = pd.read_csv("tool_datasets/test.csv")
+    df = pd.read_csv("tool_datasets/AI_tool_master_list_FINAL.csv")
 
     # Set up WebDriver
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
@@ -82,14 +82,14 @@ def main():
         # Append results to the lists
         titles.append(title)
         links.append(link)
-        time.sleep(1.5)
+        time.sleep(3)
 
     # Add the results to the DataFrame
     df["Tool Name"] = titles
     df["Domain"] = links
 
     # Save the updated DataFrame to a new CSV
-    df.to_csv("tool_datasets/test_trial_1.csv", index=False)
+    df.to_csv("tool_datasets/FINAL_LIST.csv", index=False)
 
     # Close the driver
     driver.quit()
