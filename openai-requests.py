@@ -37,9 +37,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 def process_site(name, domain):
-    """
-    Process one hospital: load its search results, build the prompt, and get the homepage URL.
-    """
+
 
     user_prompt = (
         f"""
@@ -52,7 +50,7 @@ def process_site(name, domain):
         # system_prompt = "Output can be either an appropriate  URL or NA"
     system_prompt = """
     You are an expert at finding API URLs/endpoints that are exposed by AI tools for website developers to use in their website.
-    If a website developer is looking to integrate an AI tool, platform, service, etc. into their website, what are the URLs that the he can use?
+    If a website developer is looking to integrate an AI tool, platform, service, etc. into their website, what are the URLs that he can use?
     For example, if i was to ask you this prompt for tool Title: ChatGPT. Domain: chatgpt.com, I'd expect a list that looks like this: 
     1. https://api.openai.com/v1/chat/completions 
     2. https://api.openai.com/v1/models 
@@ -187,7 +185,7 @@ def main():
     # Adjust max_workers based on your rate limits and desired concurrency
         # Map each hospital row to a future
     tools = [
-        ("ChatGPT", "chatgpt.com"),
+        ("Eleven Labs", "elevenlabs.io"),
         # ("AnotherTool", "anothertool.com"),
     ]
     for name, domain in tools:
