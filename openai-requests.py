@@ -180,16 +180,31 @@ Regular expressions: 1. app.stammer.ai
     print("URLs:", endpoints)
     print("Regex patterns:", patterns)
 
+    return endpoints, patterns
+
 def main():
 
     # Adjust max_workers based on your rate limits and desired concurrency
         # Map each hospital row to a future
     tools = [
-        ("Eleven Labs", "elevenlabs.io"),
+        ("Runway", "runwayml.com"),
         # ("AnotherTool", "anothertool.com"),
     ]
-    for name, domain in tools:
-        result = process_site(name, domain)
+    filename = 'AIinWeb.csv'
+    file_exists = os.path.exists(filename)
+    fieldnames = ['Service Name', 'Domain', 'API URL']
+    with open(filename, mode='a', newline='') as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        for name, domain in tools:
+            endpoints, patterns = process_site(name, domain)
+            writer.writerow({
+                'Service Name': name,
+                'Domain': ' '.join(patterns),
+                'API URL': ' '.join(endpoints)
+            })
+
         
 
 if __name__ == "__main__":
