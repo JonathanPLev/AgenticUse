@@ -41,7 +41,7 @@ def process_site(name, domain):
 
     user_prompt = (
         f"""
-        find me all the API links available for this tool. Title: {name} Domain: {domain}
+        find me all the API links available for this tool/service. Title: {name} Domain: {domain}
         """
     )
 
@@ -187,7 +187,7 @@ def main():
     # Adjust max_workers based on your rate limits and desired concurrency
         # Map each hospital row to a future
     tools = [
-        ("Runway", "runwayml.com"),
+        ("ChatGPT", "chatgpt.com"),
         # ("AnotherTool", "anothertool.com"),
     ]
     filename = 'AIinWeb.csv'
