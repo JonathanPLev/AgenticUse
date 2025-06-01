@@ -4,3 +4,7 @@ node_modules/
 .DS_Store
 logs_selenium_stealth/
 logs/
+data/*
+bigq*
+tranco*
+AIinWeb.csv
