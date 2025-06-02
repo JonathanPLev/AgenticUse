@@ -12,7 +12,7 @@ const { clearInterval } = require('timers');
 // Plugins for basic bot mitigation
 puppeteer.use(StealthPlugin());
 
-const INPUT_CSV = 'test_URLs.csv';
+const INPUT_CSV = 'urls_with_subdomains_forCrawl.csv';
 const OUTPUT_DIR = 'data';
 const BATCH_SIZE = 100;
 let FLUSH_INTERVAL_MS = 5000;           // adjustable flush interval
