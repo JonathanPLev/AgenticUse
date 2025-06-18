@@ -12,15 +12,23 @@ const { clearInterval } = require('timers');
 // Plugins for basic bot mitigation
 puppeteer.use(StealthPlugin());
 
-const INPUT_CSV = 'urls_with_subdomains_forCrawl.csv';
+const INPUT_CSV = 'test_URLs.csv'; // urls_with_subdomains_forCrawl.csv
 const OUTPUT_DIR = 'data';
 const BATCH_SIZE = 100;
 let FLUSH_INTERVAL_MS = 5000;           // adjustable flush interval
-const SCROLL_DURATION_MS = 20000 + Math.random() * 5000; // 20–25s scroll window
+const SCROLL_DURATION_MS = 20000 + Math.random() * 5000; // 20-25s scroll window
 const MAX_SCROLL_STEPS = 50;            // max scroll actions
 
 // Ensure output directory exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
+
+function normalizeUrl(url) {
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    return 'https://' + url;
+  }
+  return url;
+}
+
 
 class DataQueue {
   constructor(filename, batchSize = BATCH_SIZE) {
@@ -89,8 +97,8 @@ async function captureFrameDOM(client, frameTree, domQueue) {
     .on('data', row => { if (row.url) urls.push(row.url); })
     .on('end', async () => {
       console.log(`Loaded ${urls.length} URLs.`);
-
-      const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'] });
+    
+      const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'], ignoreHTTPSErrors: true });
 
       const flushTimer = setInterval(() => {
       Promise.all(allQueues.map(q => q.flush()))
@@ -99,15 +107,43 @@ async function captureFrameDOM(client, frameTree, domQueue) {
 
 
       for (const url of urls) {
-        console.log(`Processing: ${url}`);
+
+         // 1) figure out which full URL actually works:
+        const page = await browser.newPage();
+        // Bot mitigation: randomize UA & viewport
+        await page.setUserAgent(
+          `Mozilla/5.0 (Windows NT ${10 + Math.floor(Math.random()*3)}.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${110 + Math.floor(Math.random()*10)}.0.0.0 Safari/537.36`
+        );
+        await page.setViewport({ width: 1280 + Math.floor(Math.random()*400), height: 720 + Math.floor(Math.random()*300) });
+        
+        // const normalizedURL = normalizeUrl(url)
           // 1) make a filesystem-safe “slug” from the URL
         const slug = url
         .replace(/(^\w+:|^)\/\//, '')      // strip protocol
         .replace(/[^a-zA-Z0-9_-]/g, '_');  // replace unsafe chars
 
+
         // 2) make the folder: data/<slug>/
         const urlDir = path.join(OUTPUT_DIR, slug);
         fs.mkdirSync(urlDir, { recursive: true });
+
+                // ~~ Save terminal output ~~
+        // open a write‐stream for all terminal output
+        const termStream = fs.createWriteStream(path.join(urlDir, 'terminal.log'), { flags: 'a' });
+
+        // save originals
+        const origStdout = process.stdout.write.bind(process.stdout);
+        const origStderr = process.stderr.write.bind(process.stderr);
+
+        // override them
+        process.stdout.write = (chunk, encoding, callback) => {
+          termStream.write(chunk, encoding, callback);
+          return origStdout(chunk, encoding, callback);
+        };
+        process.stderr.write = (chunk, encoding, callback) => {
+          termStream.write(chunk, encoding, callback);
+          return origStderr(chunk, encoding, callback);
+        };
 
         // 3) create four queues that write into that folder
         const networkQueue = new DataQueue(path.join(slug, 'network.log'));
@@ -115,26 +151,58 @@ async function captureFrameDOM(client, frameTree, domQueue) {
         const consoleQueue = new DataQueue(path.join(slug, 'console.log'));
         const debugQueue   = new DataQueue(path.join(slug, 'debug.log'));
 
-    // 4) register them so the flushTimer knows about them
-    allQueues.push(networkQueue, domQueue, consoleQueue, debugQueue);
-
-        const page = await browser.newPage();
-
-        // Bot mitigation: randomize UA & viewport
-        await page.setUserAgent(
-          `Mozilla/5.0 (Windows NT ${10 + Math.floor(Math.random()*3)}.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${110 + Math.floor(Math.random()*10)}.0.0.0 Safari/537.36`
-        );
-        await page.setViewport({ width: 1280 + Math.floor(Math.random()*400), height: 720 + Math.floor(Math.random()*300) });
+        // 4) register them so the flushTimer knows about them
+        allQueues.push(networkQueue, domQueue, consoleQueue, debugQueue);
 
         const client = await page.target().createCDPSession();
+
+
+        // deal with bad certs
+        await client.send('Security.enable');
+        await client.send('Security.setIgnoreCertificateErrors', { ignore: true });
+
+
         await Promise.all([
           client.send('Network.enable'),
           client.send('Page.enable'),
           client.send('DOM.enable'),
           client.send('Runtime.enable'),
-          client.send('Debugger.enable')
+          client.send('Debugger.enable'),
         ]);
 
+        workingUrl = null
+        const stripped = url.replace(/^https?:\/\//, '').replace(/^www\./, '')
+        const [host, ...rest] = stripped.split('/');
+        const pathPart = rest.length ? '/' + rest.join('/') : '';
+
+        const subdomains = ['', 'www.'];
+        const protocols  = ['', 'http://', 'https://'];
+
+        for (const sub of subdomains) {
+          for (const prot of protocols) {
+            const candidate = prot + sub + host + pathPart;
+            try {
+              // try to navigate
+              await page.goto(candidate, { waitUntil: 'domcontentloaded', timeout: 10000 });
+              // got a 2xx/3xx — we’ll assume success
+              workingUrl = candidate;
+              console.log(` → navigation succeeded on ${candidate}`);
+              break;
+            } catch (err) {
+              console.warn(` ✗ ${candidate} failed: ${err.message}`);
+            }
+          }
+          if (workingUrl) break;
+        }
+        
+        if (!workingUrl) {
+          console.warn(`‼ No working variant for ${url}, skipping.`);
+          await page.close();
+          continue;
+        }
+
+        normalizedURL = workingUrl
+        
         client.on('Debugger.paused', async evt => {
             debugQueue.enqueue({ event: 'paused', details: evt });
             try {
@@ -199,16 +267,19 @@ async function captureFrameDOM(client, frameTree, domQueue) {
 
         // Navigate and scroll
         try {
-          await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          await page.goto(normalizedURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
           await scrollWithPauses(page);
         } catch (err) {
-          console.warn(`Navigation failed for ${url}: ${err.message}`);
+          console.warn(`Navigation failed for ${normalizedURL}: ${err.message}`);
         }
 
         // Capture DOM for main frame + iframes
         const { frameTree } = await client.send('Page.getFrameTree');
         await captureFrameDOM(client, frameTree, domQueue);
 
+        process.stdout.write = origStdout;
+        process.stderr.write = origStderr;
+        termStream.end();
         await page.close();
       }
 
@@ -220,7 +291,6 @@ async function captureFrameDOM(client, frameTree, domQueue) {
       await Promise.all(allQueues.map(q => q.flush()));
 
       console.log('All data flushed, exiting.');
-
 
     });
 })();
