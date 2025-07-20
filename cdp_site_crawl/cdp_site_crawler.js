@@ -14,22 +14,19 @@ puppeteer.use(StealthPlugin());
 
 const INPUT_CSV = 'test_URLs.csv'; // urls_with_subdomains_forCrawl.csv
 const OUTPUT_DIR = 'data';
-const BATCH_SIZE = 100;
 let FLUSH_INTERVAL_MS = 5000;           // adjustable flush interval
-const SCROLL_DURATION_MS = 20000 + Math.random() * 5000; // 20-25s scroll window
-const MAX_SCROLL_STEPS = 50;            // max scroll actions
+let workingUrl = null;
+let normalizedURL = null;
 
 // Ensure output directory exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-const { normalizeURL, DataQueue, scrollWithPauses, captureFrameDOM} = require('./helpers.js')
+const { normalizeUrl, DataQueue, scrollWithPauses, captureFrameDOM} = require('./helpers.js')
 
 
 
 
 const allQueues = [];
-
-
 
 
 (async () => {
@@ -86,16 +83,16 @@ const allQueues = [];
           termStream.write(chunk, encoding, callback);
           return origStderr(chunk, encoding, callback);
         };
-
+      try {
         // 3) create four queues that write into that folder
-        const networkQueue = new DataQueue(path.join(slug, 'network.log'));
-        const domQueue     = new DataQueue(path.join(slug, 'dom.log'));
-        const consoleQueue = new DataQueue(path.join(slug, 'console.log'));
-        const debugQueue   = new DataQueue(path.join(slug, 'debug.log'));
-        const detectionQueue = new DataQueue(path.join(slug, 'detection.log'))
+        const networkQueue = new DataQueue(path.join(urlDir, 'network.log'));
+        const domQueue     = new DataQueue(path.join(urlDir, 'dom.log'));
+        const consoleQueue = new DataQueue(path.join(urlDir, 'console.log'));
+        const debugQueue   = new DataQueue(path.join(urlDir, 'debug.log'));
+        const detectionQueue = new DataQueue(path.join(urlDir, 'detection.log'))
 
         // 4) register them so the flushTimer knows about them
-        allQueues.push(networkQueue, domQueue, consoleQueue, debugQueue);
+        allQueues.push(networkQueue, domQueue, consoleQueue, debugQueue, detectionQueue);
 
         const client = await page.target().createCDPSession();
 
@@ -256,8 +253,8 @@ const allQueues = [];
         const hasChatAnywhere = chatbotKeywords.some(k => fullText.includes(k));
         console.log('🔎 chat keywords in any frame?', hasChatAnywhere);
         // TODO: log and interact with chatbot.
+        let clicked = false;
         if (hasChatInText || hasChatInScripts) {
-          let clicked = false;
           for (const sel of chatLaunchers) {
             try {
               await page.waitForSelector(sel, { timeout: 3000 });
@@ -328,22 +325,27 @@ const allQueues = [];
                 break;
               } catch { /* not found, try next */ }
 
-              if (!replySel) {
-                console.warn('⚠️  No bot reply detected within timeout');
-              } else {
-                const botReply = await chatFrame.$eval(replySel, el => el.innerText.trim());
-                console.log('🤖 Bot replied:', botReply);
-              }
+            }
+            if (!replySel) {
+              console.warn('⚠️  No bot reply detected within timeout');
+            } else {
+              const botReply = await chatFrame.$eval(replySel, el => el.innerText.trim());
+              console.log('🤖 Bot replied:', botReply);
             }
           }
         }
 
-
+      }
+      catch (err){
+        console.error(`Error crawling ${normalizedURL}:`, err);
+      }
+      finally{
         process.stdout.write = origStdout;
         process.stderr.write = origStderr;
         termStream.end();
         await page.close();
       }
+    }
 
       // Close browser and flush remaining data
       await browser.close();
@@ -354,5 +356,5 @@ const allQueues = [];
 
       console.log('All data flushed, exiting.');
 
-    });
+  });
 })();
