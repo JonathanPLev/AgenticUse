@@ -7,14 +7,15 @@ const chatbotKeywords = [
     // TODO: …add more as you discover them
   ];
 
+// static_data.js
 const chatbotProviders = {
-    Drift:    /js\.driftcdn\.com/,
-    Intercom: /widget\.intercom\.io/,
-    LiveChat: /livechatinc\.com/,
-    HubSpot:  /js\.hs-scripts\.com/,
-    Tidio:    /code\.tidio\.co/,
-    // …add yours as you discover them
-  };
+  intercom:    /intercom\.io/,
+  livechat:    /livechatinc\.com/,
+  drift:       /drift\.com\/api-client\//,          // catch Drift’s REST calls
+  hubspot:     /api\.hubapi\.com\/conversations\//, // catch HubSpot convo API
+  hubspotSocket: /websocket\.hubapi\.com/           // if they use WS for replies
+};
+
 
 // 1) All your known launchers
 const chatLaunchers = [
@@ -61,10 +62,20 @@ const chatLaunchers = [
     'button[data-qa="chat-launcher"]',
   ];
 
+  const searchBarSelectors = [
+    'input[type="search"]',
+    'input[name*=search]',
+    'input[id*=search]',
+    'form[role="search"]',
+    'form.search',
+    '.search-form',
+    '.search-input'
+  ];
+
+
 module.exports = {
     chatbotKeywords,
     chatbotProviders,
     chatLaunchers,
-    
-
+    searchBarSelectors
 }

@@ -8,7 +8,7 @@ const csv = require('csv-parser');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { clearInterval } = require('timers')
-const { chatbotKeywords, chatbotProviders, chatLaunchers } = require('./static_data.js')
+const { chatbotKeywords, chatbotProviders, chatLaunchers, searchBarSelectors } = require('./static_data.js')
 // Plugins for basic bot mitigation
 puppeteer.use(StealthPlugin());
 
@@ -143,7 +143,7 @@ const allQueues = [];
           }
           if (workingUrl) break;
         }
-        
+
         if (!workingUrl) {
           console.warn(`‼ No working variant for ${url}, skipping.`);
           await page.close();
@@ -151,7 +151,7 @@ const allQueues = [];
         }
 
         normalizedURL = workingUrl
-        
+
         client.on('Debugger.paused', async evt => {
             debugQueue.enqueue({ event: 'paused', details: evt });
             try {
@@ -160,7 +160,7 @@ const allQueues = [];
               console.error('Failed to resume debugger:', err);
             }
           });
-          
+
         // Breakpoint before script execution
         await client.send('Debugger.setInstrumentationBreakpoint', { instrumentation: 'beforeScriptExecution' });
 
@@ -248,7 +248,7 @@ const allQueues = [];
              .catch(() => '')   // cross-origin frames will throw
           )
         );
-        
+
         const fullText = texts.join('\n').toLowerCase();
         const hasChatAnywhere = chatbotKeywords.some(k => fullText.includes(k));
         console.log('🔎 chat keywords in any frame?', hasChatAnywhere);
@@ -333,6 +333,34 @@ const allQueues = [];
               console.log('🤖 Bot replied:', botReply);
             }
           }
+        }
+
+                // ——— Search‑bar detection ———
+        const hasSearchBar = await page.evaluate(selectors =>
+          selectors.some(sel => !!document.querySelector(sel)),
+          searchBarSelectors
+        );
+        console.log('🔎 search-bar present?', hasSearchBar);
+        detectionQueue.enqueue({
+          event:   'searchBarDetected',
+          present: hasSearchBar
+        });
+
+        if (hasSearchBar) {
+          // find the first matching selector
+          const sel = await page.evaluate(selectors =>
+            selectors.find(s => !!document.querySelector(s)),
+            searchBarSelectors
+          );
+
+          await page.click(sel);
+          await page.type(sel, 'test query');
+          await page.keyboard.press('Enter');
+          console.log(`🔍 performed dummy search in ${sel}`);
+          detectionQueue.enqueue({
+            event:    'searchTestPerformed',
+            selector: sel
+          });
         }
 
       }
