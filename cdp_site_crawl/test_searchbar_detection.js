@@ -124,7 +124,7 @@ const foundResults = await page.evaluate((q) => {
     }
     return results;
   }, searchQuery);
-  
+
   if (foundResults && foundResults.length) {
     console.log('📝 Top search results:');
     foundResults.forEach((res, i) => {
@@ -133,7 +133,7 @@ const foundResults = await page.evaluate((q) => {
   } else {
     console.log('ℹ️ Could not extract any search results from the page.');
   }
-  
+
     } catch (err) {
       console.warn('⚠️  Could not detect new search results or navigation.');
     }

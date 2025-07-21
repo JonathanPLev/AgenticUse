@@ -62,15 +62,36 @@ const chatLaunchers = [
     'button[data-qa="chat-launcher"]',
   ];
 
-  const searchBarSelectors = [
-    'input[type="search"]',
-    'input[name*=search]',
-    'input[id*=search]',
-    'form[role="search"]',
-    'form.search',
-    '.search-form',
-    '.search-input'
-  ];
+ const searchBarSelectors = [
+  // Attribute-based (broad match, case-insensitive)
+  'input[type="search"]',
+  'input[name*=search i]',
+  'input[id*=search i]',
+  'input[class*=search i]',
+  'input[placeholder*=search i]',
+  'input[aria-label*=search i]',
+  // Variants for "searchbox"
+  'input[id*=searchbox i]',
+  'input[name*=searchbox i]',
+  'input[class*=searchbox i]',
+  'input[id*=search-box i]',
+  'input[name*=search-box i]',
+  'input[class*=search-box i]',
+  'input[id*=search_box i]',
+  'input[name*=search_box i]',
+  'input[class*=search_box i]',
+  'input[class*=searchbox_input i]',
+  'input[id*=searchbox_input i]',
+  'input[name*=searchbox_input i]',
+  // Forms and wrappers
+  'form[role="search"]',
+  'form.search',
+  '.search-form',
+  '.search-input',
+  // Also, the bare ID (as on DuckDuckGo)
+  '#searchbox_input',
+];
+
 
 
 module.exports = {

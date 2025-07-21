@@ -30,6 +30,31 @@ puppeteer.use(StealthPlugin());
   console.log(`Navigating to ${url}…`);
   await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
 
+  // BEFORE the main scan, try clicking help/contact triggers
+const triggerSelectors = [
+  'button[aria-label*="help"]',
+  'button[aria-label*="contact"]',
+  'button[aria-label*="chat"]',
+  '.help', '.support', '.contact', '.widget-button', // and more!
+  // Add more as you discover for each site
+];
+
+for (const sel of triggerSelectors) {
+  try {
+    const btn = await page.$(sel);
+    if (btn) {
+      await btn.click();
+      console.log(`Clicked trigger: ${sel}`);
+      await new Promise(res => setTimeout(res, 2000));
+ // wait for UI to open
+    }
+  } catch (e) {
+    // Not found/visible, continue
+  }
+}
+
+// (Optional) Scroll to bottom as well
+await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   // 1) in-page keyword scan
   const hasChatInText = await page.evaluate(keywords =>
     document.body.innerText
