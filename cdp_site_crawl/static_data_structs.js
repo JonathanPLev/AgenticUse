@@ -65,6 +65,9 @@ const chatLaunchers = [
  const searchBarSelectors = [
   // Attribute-based (broad match, case-insensitive)
   'input[type="search"]',
+  'input[type="text"]',
+  'input[name*="search"]',
+  'input[id*="search"]',
   'input[name*=search i]',
   'input[id*=search i]',
   'input[class*=search i]',
