@@ -93,6 +93,29 @@ const chatLaunchers = [
   '.search-input',
   // Also, the bare ID (as on DuckDuckGo)
   '#searchbox_input',
+  '.shop-blue-assist-2BM4L',          // Best Buy’s help/chatbot class
+  '[title*="help" i]',                 // generic
+  '[alt*="help" i]'
+];
+
+const helpLaunchers = [
+  'button[aria-label*="help" i]',
+  'button[title*="help" i]',
+  'a[aria-label*="help" i]',
+  'a[title*="help" i]',
+  '[class*="help" i]',
+  '[id*="help" i]',
+  '[data-testid*="help" i]',
+  'button[aria-label*="support" i]',
+  'button[title*="support" i]',
+  '[class*="support" i]',
+  '[id*="support" i]',
+  '[data-testid*="support" i]',
+  'button[aria-label*="assistant" i]',
+  'button[title*="assistant" i]',
+  '[class*="assistant" i]',
+  '[id*="assistant" i]',
+  '[data-testid*="assistant" i]',
 ];
 
 
@@ -101,5 +124,6 @@ module.exports = {
     chatbotKeywords,
     chatbotProviders,
     chatLaunchers,
-    searchBarSelectors
+    searchBarSelectors,
+    helpLaunchers
 }

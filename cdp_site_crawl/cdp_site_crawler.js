@@ -1,6 +1,18 @@
 // crawl_with_puppeteer.js
 // A Puppeteer + CDP crawler with batching, network tracking (including request body), DOM snapshots (including iframes),
 // runtime/console capture, Debugger instrumentation breakpoints, and basic bot-mitigation.
+// find a paper that talks about using some method/algorithm to find search bars
+// see if there's more papers about finding chatbots
+// https://link.springer.com/chapter/10.1007/978-3-031-20891-1_23
+// searchbot: https://www.mdpi.com/2078-2489/5/4/634#:~:text=An%20important%20step%20in%20classifying,a%20human%20to%20determine%20the
+// implement cookie banner acceptance, yash's github
+// https://github.com/Yash-Vekaria/ad-crawler?tab=readme-ov-file#steps-to-setup-crawler
+// 2-3 days chatbot finder and [COMPLETE] searchbar detection
+// 2-3 finalize crawler, check if it detects AI use on websites that i know have AI use ~5 websites
+// 1 day: pipeline of regexs, see if detection works
+// 1 day: start crawl on 1000 pages
+// 3-4 days: get list of AI tools and regexs to run on 1000 pages. finalize script
+// 3 days: run offline tool, see if it works
 
 const fs = require('fs');
 const path = require('path');
@@ -8,7 +20,11 @@ const csv = require('csv-parser');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { clearInterval } = require('timers')
-const { chatbotKeywords, chatbotProviders, chatLaunchers, searchBarSelectors } = require('./static_data.js')
+const { chatbotKeywords, chatbotProviders, chatLaunchers} = require('./static_data.js')
+const {detectSearchBar} = require("./test_v2_searchbar_detection.js")
+const { chatbotDetector } = require('./chatbot_detection.js');
+
+
 // Plugins for basic bot mitigation
 puppeteer.use(StealthPlugin());
 
@@ -23,7 +39,10 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
 const { normalizeUrl, DataQueue, scrollWithPauses, captureFrameDOM} = require('./helpers.js')
 
-
+const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
+if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
+  throw new Error(`manifest.json not found in ${extensionDir}`);
+}
 
 
 const allQueues = [];
@@ -37,7 +56,26 @@ const allQueues = [];
     .on('end', async () => {
       console.log(`Loaded ${urls.length} URLs.`);
 
-      const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox'], ignoreHTTPSErrors: true });
+      if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
+        throw new Error(`manifest.json not found in ${extensionDir}`);
+      }
+
+      const browser = await puppeteer.launch({
+        executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+        headless: false,   // extensions only work in headful mode
+        ignoreDefaultArgs: [
+          '--disable-extensions',
+          '--disable-component-extensions-with-background-pages',
+          'about:blank'   // drop the default about:blank URL so our flags fire first
+        ],
+        args: [
+          `--disable-extensions-except=${extensionDir}`,
+          `--load-extension=${extensionDir}`,
+          '--no-sandbox',
+          '--disable-setuid-sandbox'
+        ],
+        userDataDir: path.join(__dirname, 'profile_with_consents')
+      });
 
       const flushTimer = setInterval(() => {
       Promise.all(allQueues.map(q => q.flush()))
@@ -213,6 +251,7 @@ const allQueues = [];
 
         // Debugger instrumentation hits
         client.on('Debugger.instrumentationBreakpoint', evt => debugQueue.enqueue({ event: 'beforeScriptExecution', details: evt }));
+        detectionQueue.enqueue({ event: 'providerDetected', name, url: req.url() });
 
         // Navigate and scroll
         try {
@@ -226,142 +265,13 @@ const allQueues = [];
         const { frameTree } = await client.send('Page.getFrameTree');
         await captureFrameDOM(client, frameTree, domQueue);
 
-        // 5) Keyword‐based detection in rendered content
-        const hasChatInText = await page.evaluate((keywords) => {
-          return document.body.innerText
-            .toLowerCase()
-            .split('\n')
-            .some(line => keywords.some(k => line.includes(k)));
-        }, chatbotKeywords);
+        // const detectionResult = await chatbotDetector(page, normalizedURL);
+        // console.log('🔎 chat found?', detectionResult.foundAnyKeywords);
+        await chatbotDetector(page, normalizedURL);
 
-        const hasChatInScripts = await page.evaluate((keywords) => {
-          return Array.from(document.querySelectorAll('script, iframe'))
-            .some(node => {
-              const src = (node.src || '').toLowerCase();
-              return keywords.some(k => src.includes(k));
-            });
-        }, chatbotKeywords);
-
-        const texts = await Promise.all(
-          page.frames().map(f =>
-            f.evaluate(() => document.body.innerText)
-             .catch(() => '')   // cross-origin frames will throw
-          )
-        );
-
-        const fullText = texts.join('\n').toLowerCase();
-        const hasChatAnywhere = chatbotKeywords.some(k => fullText.includes(k));
-        console.log('🔎 chat keywords in any frame?', hasChatAnywhere);
-        // TODO: log and interact with chatbot.
-        let clicked = false;
-        if (hasChatInText || hasChatInScripts) {
-          for (const sel of chatLaunchers) {
-            try {
-              await page.waitForSelector(sel, { timeout: 3000 });
-              await page.click(sel);
-              console.log(`✅ Chat opened via selector: ${sel}`);
-              clicked = true;
-              break;
-            } catch {
-              // not found or not clickable—try next
-            }
-        }
-      }
-        if (!clicked) {
-          console.warn('⚠️  No chat launcher matched any known selector');
-        }
-        else{
-          // 1) pick the right “chat frame” (falls back to main page)
-        let chatFrame = page;
-        for (const f of page.frames()) {
-          // use whatever pattern matches your provider domain
-          if (/intercom\.io|driftcdn\.com|livechatinc\.com/.test(f.url())) {
-            chatFrame = f;
-            console.log('🔍 chatting inside frame:', f.url());
-            break;
-          }
-        }
-        const chatInputs = [
-          'textarea.chat-input',          // generic textarea
-          'input.chat-input',             // generic input
-          'textarea#intercom-chat-input', // Intercom
-          'textarea.drift-input',         // Drift
-          '#livechat-message-input',      // LiveChat
-        ];
-
-          // 3) find the first one that works
-          let inputSel = null;
-          for (const sel of chatInputs) {
-            try {
-              await chatFrame.waitForSelector(sel, { timeout: 5000 });
-              inputSel = sel;
-              console.log(`✏️  typing into ${sel}`);
-              break;
-            } catch { /* not found, try next */ }
-          }
-
-          if (!inputSel) {
-            console.warn('⚠️  No chat input found – can’t send message');
-          } else {
-            // 4) type + send
-            const message = 'Hello, are you a bot?';
-            await chatFrame.type(inputSel, message);
-            await chatFrame.keyboard.press('Enter');
-            console.log(`📤 sent: "${message}"`);
-
-            // 5) wait for the bot’s response bubble
-            const responseSelectors = [
-              '.chat-bubble.bot:last-child',                // generic
-              '.intercom-chat-message--agent:last-child',   // Intercom
-              '.drift-widget-message:last-child',           // Drift
-              '.lc-chat__message--operator:last-child',     // LiveChat
-            ];
-
-            let replySel = null;
-            for (const sel of responseSelectors) {
-              try {
-                await chatFrame.waitForSelector(sel, { timeout: 20000 });
-                replySel = sel;
-                break;
-              } catch { /* not found, try next */ }
-
-            }
-            if (!replySel) {
-              console.warn('⚠️  No bot reply detected within timeout');
-            } else {
-              const botReply = await chatFrame.$eval(replySel, el => el.innerText.trim());
-              console.log('🤖 Bot replied:', botReply);
-            }
-          }
-        }
 
                 // ——— Search‑bar detection ———
-        const hasSearchBar = await page.evaluate(selectors =>
-          selectors.some(sel => !!document.querySelector(sel)),
-          searchBarSelectors
-        );
-        console.log('🔎 search-bar present?', hasSearchBar);
-        detectionQueue.enqueue({
-          event:   'searchBarDetected',
-          present: hasSearchBar
-        });
-
-        if (hasSearchBar) {
-          // find the first matching selector
-          const sel = await page.evaluate(selectors =>
-            selectors.find(s => !!document.querySelector(s)),
-            searchBarSelectors
-          );
-
-          await page.click(sel);
-          await page.type(sel, 'test query');
-          await page.keyboard.press('Enter');
-          console.log(`🔍 performed dummy search in ${sel}`);
-          detectionQueue.enqueue({
-            event:    'searchTestPerformed',
-            selector: sel
-          });
-        }
+        detectSearchBar(page, workingUrl)
 
       }
       catch (err){

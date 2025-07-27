@@ -10,4 +10,6 @@ tranco*
 AIinWeb.csv
 top-1m.csv
 crawl_venv/
-ssh*
+ssh*.
+Consent_O_Matic
+cdp_site_crawl/tmp_profile
