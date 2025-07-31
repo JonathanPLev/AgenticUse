@@ -161,4 +161,6 @@ async function chatbotDetector(page, url){
     function sleep(ms) {
     return new Promise(resolve => setTimeout(resolve, ms));
     }
-}
+};
+
+module.exports = chatbotDetector;
