@@ -8,7 +8,9 @@
 // implement cookie banner acceptance, yash's github
 // https://github.com/Yash-Vekaria/ad-crawler?tab=readme-ov-file#steps-to-setup-crawler
 // 2-3 days chatbot finder and [COMPLETE] searchbar detection
+// try to enter text into every possible entry, see if we can trigger an AI service.
 // 2-3 finalize crawler, check if it detects AI use on websites that i know have AI use ~5 websites
+// sqlite
 // 1 day: pipeline of regexs, see if detection works
 // 1 day: start crawl on 1000 pages
 // 3-4 days: get list of AI tools and regexs to run on 1000 pages. finalize script
@@ -21,8 +23,9 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { clearInterval } = require('timers');
 const { chatbotKeywords, chatbotProviders, chatLaunchers } = require("./static_data_structs.cjs");
-const {detectSearchBar} = require("./test_v2_searchbar_detection.cjs")
-const { chatbotDetector } = require('./chatbot_detection.js');
+const detectSearchBar = require("./test_v2_searchbar_detection.cjs");
+const chatbotDetector = require('./chatbot_detection.js');
+const interactWithAllForms = require("./input_interaction.cjs")
 
 
 // Plugins for basic bot mitigation
@@ -66,7 +69,8 @@ const allQueues = [];
         ignoreDefaultArgs: [
           '--disable-extensions',
           '--disable-component-extensions-with-background-pages',
-          'about:blank'   // drop the default about:blank URL so our flags fire first
+          // disable blank features.
+          'about:blank'   // verify that i can drop it. // drop the default about:blank URL so our flags fire first
         ],
         args: [
           `--disable-extensions-except=${extensionDir}`,
@@ -128,10 +132,10 @@ const allQueues = [];
         const consoleQueue = new DataQueue(path.join(urlDir, 'console.log'));
         const debugQueue   = new DataQueue(path.join(urlDir, 'debug.log'));
         const detectionQueue = new DataQueue(path.join(urlDir, 'detection.log'))
-
+        
         // 4) register them so the flushTimer knows about them
         allQueues.push(networkQueue, domQueue, consoleQueue, debugQueue, detectionQueue);
-
+        detectionQueue.enqueue({ event: 'crawlStarted', timestamp: Date.now() }); // to ensure detection log always exists
         const client = await page.target().createCDPSession();
 
 
@@ -150,6 +154,8 @@ const allQueues = [];
 
         workingUrl = null
         const stripped = url.replace(/^https?:\/\//, '').replace(/^www\./, '')
+        console.log(stripped);
+
         const [host, ...rest] = stripped.split('/');
         const pathPart = rest.length ? '/' + rest.join('/') : '';
 
@@ -160,6 +166,11 @@ const allQueues = [];
           for (const [name, re] of Object.entries(chatbotProviders)) {
             if (re.test(req.url())) {
               console.log(`🕵️ Detected provider ${name} on ${req.frame().url()}`);
+              detectionQueue.enqueue({
+                event: 'providerDetected',
+                provider: providerName,
+                url: req.url()
+              });
             }
           }
         });
@@ -251,7 +262,7 @@ const allQueues = [];
 
         // Debugger instrumentation hits
         client.on('Debugger.instrumentationBreakpoint', evt => debugQueue.enqueue({ event: 'beforeScriptExecution', details: evt }));
-        detectionQueue.enqueue({ event: 'providerDetected', name, url: req.url() });
+        // detectionQueue.enqueue({ event: 'providerDetected', details: evt, url: req.url() });
 
         // Navigate and scroll
         try {
@@ -263,15 +274,12 @@ const allQueues = [];
 
         // Capture DOM for main frame + iframes
         const { frameTree } = await client.send('Page.getFrameTree');
-        await captureFrameDOM(client, frameTree, domQueue);
+        await captureFrameDOM(page, domQueue);
 
         // const detectionResult = await chatbotDetector(page, normalizedURL);
         // console.log('🔎 chat found?', detectionResult.foundAnyKeywords);
-        await chatbotDetector(page, normalizedURL);
+        await interactWithAllForms(page, normalizedURL);
 
-
-                // ——— Search‑bar detection ———
-        detectSearchBar(page, workingUrl)
 
       }
       catch (err){
@@ -281,7 +289,13 @@ const allQueues = [];
         process.stdout.write = origStdout;
         process.stderr.write = origStderr;
         termStream.end();
-        await page.close();
+        if (!page.isClosed()) {
+          try {
+            await page.close();
+          } catch (e) {
+            console.warn(`Could not close page: ${e.message}`);
+          }
+        }
       }
     }
 
