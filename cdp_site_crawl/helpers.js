@@ -4,6 +4,40 @@ const path = require('path');
 
 const DEFAULT_BATCH_SIZE = 100;
 
+async function captureFrame(frame) {
+  try {
+    // use evaluate when same-origin
+    const html = await frame.evaluate(() => document.documentElement.outerHTML);
+    domQueue.enqueue({
+      frameId: frame._id,           // puppeteer’s internal id
+      url:     frame.url(),
+      html,
+      ts:      Date.now(),
+    });
+  } catch (err) {
+    // fallback for cross-origin frames (DOMSnapshot is heavier but works)
+    const snapshot = await client.send('DOMSnapshot.captureSnapshot', {
+      includeDOM: true,
+      includePaintOrder: false,
+      includeDOMRects: false,
+      computedStyles: []
+    });
+    domQueue.enqueue({
+      frameId: frame._id,
+      url:     frame.url(),
+      snapshot,
+      ts:      Date.now(),
+    });
+  }
+}
+
+// 2) Helper to walk all known frames
+async function captureAllFrames() {
+  for (const frame of page.frames()) {
+    await captureFrame(frame);
+  }
+}
+
 function normalizeUrl(url) {
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     return 'https://' + url;
@@ -54,7 +88,8 @@ async function scrollWithPauses(page,
 
   while (Date.now() - start < durationMs && steps < maxSteps) {
     await page.evaluate(h => window.scrollBy(0, h), 300);
-    await page.waitForTimeout(500 + Math.random() * 1000);
+    const delay = 500 + Math.random() * 1000;
+    await new Promise(resolve => setTimeout(resolve, delay));
     steps++;
   }
 
@@ -90,5 +125,7 @@ module.exports = {
   normalizeUrl,
   DataQueue,
   scrollWithPauses,
-  captureFrameDOM
+  captureFrameDOM,
+  captureAllFrames,
+  captureFrame
 };

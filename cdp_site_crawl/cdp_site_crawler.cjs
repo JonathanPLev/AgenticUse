@@ -22,11 +22,9 @@ const csv = require('csv-parser');
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { clearInterval } = require('timers');
-const { chatbotKeywords, chatbotProviders, chatLaunchers } = require("./static_data_structs.cjs");
-const detectSearchBar = require("./test_v2_searchbar_detection.cjs");
-const chatbotDetector = require('./chatbot_detection.js');
+const { chatbotProviders, viewports, userAgents } = require("./static_data_structs.cjs");
 const interactWithAllForms = require("./input_interaction.cjs")
-
+const { instrumentPage } = require('./instrumentation');
 
 // Plugins for basic bot mitigation
 puppeteer.use(StealthPlugin());
@@ -40,7 +38,7 @@ let normalizedURL = null;
 // Ensure output directory exists
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
-const { normalizeUrl, DataQueue, scrollWithPauses, captureFrameDOM} = require('./helpers.js')
+const { normalizeUrl, DataQueue, scrollWithPauses, captureFrameDOM, captureAllFrames} = require('./helpers.js')
 
 const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
 if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
@@ -59,18 +57,13 @@ const allQueues = [];
     .on('end', async () => {
       console.log(`Loaded ${urls.length} URLs.`);
 
-      if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
-        throw new Error(`manifest.json not found in ${extensionDir}`);
-      }
-
       const browser = await puppeteer.launch({
         executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
         headless: false,   // extensions only work in headful mode
         ignoreDefaultArgs: [
           '--disable-extensions',
           '--disable-component-extensions-with-background-pages',
-          // disable blank features.
-          'about:blank'   // verify that i can drop it. // drop the default about:blank URL so our flags fire first
+          '--disable-blink-features=AutomationControlled,MojoJS'
         ],
         args: [
           `--disable-extensions-except=${extensionDir}`,
@@ -91,11 +84,14 @@ const allQueues = [];
 
          // 1) figure out which full URL actually works:
         const page = await browser.newPage();
+        await instrumentPage(page, {
+          networkQueue, responseQueue, consoleQueue, debugQueue, domQueue
+        });
         // Bot mitigation: randomize UA & viewport
         await page.setUserAgent(
-          `Mozilla/5.0 (Windows NT ${10 + Math.floor(Math.random()*3)}.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${110 + Math.floor(Math.random()*10)}.0.0.0 Safari/537.36`
+          userAgents[Math.floor(Math.random() * userAgents.length)]
         );
-        await page.setViewport({ width: 1280 + Math.floor(Math.random()*400), height: 720 + Math.floor(Math.random()*300) });
+        await page.setViewport(viewports[Math.floor(Math.random() * viewports.length)]);
 
         // const normalizedURL = normalizeUrl(url)
           // 1) make a filesystem-safe “slug” from the URL
@@ -278,7 +274,14 @@ const allQueues = [];
 
         // const detectionResult = await chatbotDetector(page, normalizedURL);
         // console.log('🔎 chat found?', detectionResult.foundAnyKeywords);
-        await interactWithAllForms(page, normalizedURL);
+        const finalPage = await interactWithAllForms(page, workingUrl, {
+          instrumentPage,
+          queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue },
+          openUrlMode: 'original',       // open submission tabs at *original* or switch to 'final'
+          finalFreshOriginal: true,      // ALWAYS end with a brand-new originalUrl tab
+          closeSubmissionTabs: true,     // collect traffic then close temp tabs
+          bodyPreviewLimit: 1_000_000,
+        });
 
 
       }
@@ -300,7 +303,7 @@ const allQueues = [];
     }
 
       // Close browser and flush remaining data
-      await browser.close();
+      try { await finalPage.close(); } catch {}
 
       // flush _all_ queues one last time
       clearInterval(flushTimer);

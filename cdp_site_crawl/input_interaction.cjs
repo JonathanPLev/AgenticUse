@@ -1,91 +1,154 @@
-async function interactWithAllForms(page, originalUrl) {
-    function sleep(ms) {
-      return new Promise(r => setTimeout(r, ms));
-    }
-  
-    const startUrl  = originalUrl || page.url();
-    const formCount = await page.$$eval('form', f => f.length);
-    console.log(`📝 Will process ${formCount} form(s)`);
-  
-    for (let idx = 1; idx <= formCount; idx++) {
-      console.log(`🔄 Processing form #${idx}`);
-  
-      // re-select the form after any navigation
-      const form = await page.$(`form:nth-of-type(${idx})`);
-      if (!form) {
-        console.warn(`⚠️ Couldn't find form #${idx}, skipping`);
-        continue;
-      }
-  
-      // grab all inputs/textareas/selects inside this one form
-      const els = await form.$$('input, textarea, select');
-      for (const el of els) {
-        try {
-          const tag = (await (await el.getProperty('tagName')).jsonValue()).toLowerCase();
-          const type = tag === 'select'
-            ? 'select'
-            : (await (await el.getProperty('type')).jsonValue() || tag).toLowerCase();
-  
-          if (['hidden','submit','reset','button','file'].includes(type)) continue;
-  
-          // checkboxes/radios
-          if (type === 'checkbox' || type === 'radio') {
-            await el.click({ delay: 100 + Math.random()*100 });
-            console.log(`   ☑️ Clicked ${type}`);
-            continue;
-          }
-  
-          // selects
-          if (type === 'select') {
-            const optVal = await el.$eval('option:not([disabled])', o => o.value);
-            await el.select(optVal);
-            console.log(`   🔽 Selected "${optVal}"`);
-            continue;
-          }
-  
-          // everything else → our one question
-          const question = 'Are you a bot?';
-          await el.focus();
-          await el.click({ clickCount: 3 });
-          await sleep(200 + Math.random()*200);
-          await el.type(question, { delay: 50 });
-          console.log(`   ✏️ Filled ${type} with "${question}"`);
-          await sleep(200 + Math.random()*200);
-  
-        } catch (e) {
-          console.warn(`   ⚠️ Skipping a field: ${e.message}`);
-        }
-      }
-  
-      // submit this form
-      try {
-        const submitBtn = await form.$('button[type=submit], input[type=submit]');
-        if (submitBtn) {
-          await submitBtn.click({ delay: 100 + Math.random()*100 });
-          console.log('   🚀 Submitted via submit-button');
-        } else {
-          await form.evaluate(f => f.submit());
-          console.log('   🚀 Submitted via form.submit()');
-        }
-      } catch (e) {
-        console.warn('   ⚠️ Error submitting form:', e.message);
-      }
-  
-      // wait for nav, then reload original
-      try {
-        await page.waitForNavigation({ timeout: 5000, waitUntil: 'domcontentloaded' });
-      } catch {}
-      if (page.url() !== startUrl) {
-        try {
-          await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        } catch (e) {
-          console.warn('   ⚠️ Couldn’t reload URL:', e.message);
-        }
-      }
-    }
-  
-    console.log('✅ Done interacting with all forms.');
+// input_interaction.js
+async function interactWithAllForms(page, originalUrl, opts = {}) {
+  const {
+    instrumentPage,
+    queues = {},
+    openUrlMode = 'original',
+    bodyPreviewLimit = 1_000_000,
+    bigBodyHardCap = 10_000_000,
+    idleAfterOpenMs = 1000,
+    finalFreshOriginal = true,   // <- always give back a clean original tab
+    closeSubmissionTabs = true,  // <- close temp tabs after traffic settles
+  } = opts;
+
+  const browser = page.browser();
+  const startUrl = originalUrl || page.url();
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+  const isBinary = (ct = '') => /octet-stream|zip|image|pdf|font|video|audio|wasm/i.test(ct);
+
+  async function safePreview(res) {
+    if (!res) return {};
+    const headers = res.headers?.() ?? {};
+    const ct = headers['content-type'] || '';
+    const cl = Number(headers['content-length'] || '0');
+    if (isBinary(ct) || (Number.isFinite(cl) && cl > bigBodyHardCap)) return {};
+    try {
+      const buf = await res.buffer();
+      if (!buf) return {};
+      const truncated = buf.length > bodyPreviewLimit;
+      return {
+        bodyPreview: buf.subarray(0, Math.min(buf.length, bodyPreviewLimit)).toString('utf8'),
+        bodyPreviewTruncated: truncated || undefined
+      };
+    } catch { return {}; }
   }
-  
-  module.exports = interactWithAllForms;
-  
+
+  function resolveOpenUrl({ navResp, xhrResp }) {
+    if (openUrlMode === 'original') return startUrl;
+    if (openUrlMode === 'current')  return page.url();
+    return navResp ? navResp.url() : page.url(); // 'final'
+  }
+
+  async function openInstrumentedTab(url) {
+    const newPage = await browser.newPage();
+    if (typeof instrumentPage === 'function') {
+      try { await instrumentPage(newPage, queues); } catch (e) {
+        console.warn('instrumentPage error:', e.message);
+      }
+    }
+    await newPage.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try { await newPage.waitForNetworkIdle({ idleTime: idleAfterOpenMs, timeout: 8000 }); } catch {}
+    return newPage;
+  }
+
+  async function submitFork(form) {
+    let navResp = null, xhrResp = null;
+    try {
+      const submitBtn = await form.$('button[type=submit], input[type=submit]');
+      const navP = page.waitForNavigation({ waitUntil: ['domcontentloaded','networkidle2'], timeout: 15000 }).catch(() => null);
+      const xhrP = page.waitForResponse(
+        r => {
+          const q = r.request();
+          return q.frame() === page.mainFrame() && ['POST','PUT','PATCH','DELETE'].includes(q.method());
+        }, { timeout: 15000 }
+      ).catch(() => null);
+
+      if (submitBtn) await submitBtn.click({ delay: 80 + Math.random()*120 });
+      else await form.evaluate(f => f.submit());
+
+      [navResp, xhrResp] = await Promise.all([navP, xhrP]);
+    } catch (e) {
+      console.warn('submit/wait error:', e.message);
+    }
+
+    for (const res of [navResp, xhrResp].filter(Boolean)) {
+      try {
+        const preview = await safePreview(res);
+        queues.responseQueue?.enqueue?.({
+          event: 'formSubmissionResponse',
+          url: res.url(),
+          status: res.status(),
+          headers: res.headers?.() ?? {},
+          ts: Date.now(),
+          ...preview
+        });
+      } catch {}
+    }
+
+    const subTab = await openInstrumentedTab(resolveOpenUrl({ navResp, xhrResp }));
+    if (closeSubmissionTabs) { try { await subTab.close(); } catch {} }
+
+    if (!page.isClosed() && page.url() !== startUrl) {
+      try { await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch {}
+    }
+  }
+
+  // Main loop: per-field submit
+  const formCount = await page.$$eval('form', fs => fs.length).catch(() => 0);
+  console.log(`📝 Will process ${formCount} form(s)`);
+
+  for (let idx = 1; idx <= formCount; idx++) {
+    if (page.url() !== startUrl) {
+      try { await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }); }
+      catch (e) { console.warn(`reload before form #${idx} failed:`, e.message); continue; }
+    }
+    const form = await page.$(`form:nth-of-type(${idx})`);
+    if (!form) { console.warn(`form #${idx} missing, skipping`); continue; }
+
+    const els = await form.$$('input, textarea, select');
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      try {
+        const tag = (await (await el.getProperty('tagName')).jsonValue()).toLowerCase();
+        const type = tag === 'select'
+          ? 'select'
+          : (await (await el.getProperty('type')).jsonValue() || tag).toLowerCase();
+
+        if (['hidden','submit','reset','button','file'].includes(type)) continue;
+
+        try { await form.evaluate(f => f.reset?.()); } catch {}
+
+        if (type === 'checkbox' || type === 'radio') {
+          await el.click({ delay: 60 + Math.random()*80 });
+          await submitFork(form);
+          continue;
+        }
+        if (type === 'select') {
+          const optVal = await el.$eval('option:not([disabled])', o => o.value);
+          await el.select(optVal);
+          await submitFork(form);
+          continue;
+        }
+
+        await el.focus();
+        await el.click({ clickCount: 3 }).catch(() => {});
+        await new Promise(r => setTimeout(r, 120 + Math.random()*180));
+        await el.type('Are you a bot?', { delay: 25 + Math.random()*25 });
+        await new Promise(r => setTimeout(r, 120 + Math.random()*180));
+        await submitFork(form);
+
+      } catch (e) {
+        console.warn(`field #${i+1} error:`, e.message);
+      }
+    }
+  }
+
+  // Always return a fresh tab at originalUrl
+  if (finalFreshOriginal) {
+    return await openInstrumentedTab(startUrl);
+  }
+  return page;
+}
+
+module.exports = interactWithAllForms;
