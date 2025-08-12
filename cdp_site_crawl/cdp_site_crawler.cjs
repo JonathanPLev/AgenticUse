@@ -70,74 +70,109 @@ const allQueues = [];
     .on('end', async () => {
       console.log(`Loaded ${urls.length} URLs.`);
 
-      const browser = await puppeteer.launch({
-        executablePath: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-        headless: false,   // extensions only work in headful mode
-        ignoreDefaultArgs: [
-          '--disable-extensions',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-blink-features=AutomationControlled,MojoJS'
-        ],
-        args: [
-          `--disable-extensions-except=${extensionDir}`,
-          `--load-extension=${extensionDir}`,
-          '--no-sandbox',
-          '--disable-setuid-sandbox'
-        ],
-        userDataDir: path.join(__dirname, 'profile_with_consents')
-      });
+      // Process each URL with a fresh browser instance
+      for (let i = 0; i < urls.length; i++) {
+        const url = urls[i];
+        console.log(`\n🌐 Processing site ${i + 1}/${urls.length}: ${url}`);
+        
+        // Create fresh browser for each site
+        let browser = null;
+        try {
+          browser = await puppeteer.launch({
+            headless: false,   // extensions only work in headful mode
+            ignoreDefaultArgs: [
+              '--disable-extensions',
+              '--disable-component-extensions-with-background-pages',
+              '--disable-blink-features=AutomationControlled,MojoJS'
+            ],
+            args: [
+              `--disable-extensions-except=${extensionDir}`,
+              `--load-extension=${extensionDir}`,
+              '--no-sandbox',
+              '--disable-setuid-sandbox'
+            ],
+            userDataDir: path.join(__dirname, `profile_${i}_${Date.now()}`)
+          });
 
-      const flushTimer = setInterval(() => {
-      Promise.all(allQueues.map(q => q.flush()))
-                .catch(console.error);
-      }, FLUSH_INTERVAL_MS);
+          // Create site-specific queues array for this iteration
+          const siteQueues = [];
+          
+          await processSingleSite(browser, url, siteQueues);
+          
+        } catch (err) {
+          console.error(`❌ Failed to process site ${url}:`, err.message);
+        } finally {
+          // Always close browser after each site
+          if (browser) {
+            try {
+              const pages = await browser.pages();
+              await Promise.all(pages.map(page => page.close().catch(() => {})));
+              await browser.close();
+              console.log(`🔒 Browser closed for ${url}`);
+            } catch (e) {
+              console.warn(`⚠️  Could not close browser cleanly: ${e.message}`);
+            }
+          }
+        }
+      }
+      
+      console.log('✅ All sites processed successfully!');
+    });
+})();
 
+// Extract site processing logic into a separate function
+async function processSingleSite(browser, url, siteQueues) {
 
-      for (const url of urls) {
+  // const normalizedURL = normalizeUrl(url)
+  // 1) make a filesystem-safe "slug" from the URL
+  const slug = url
+    .replace(/(^\w+:|^)\/\//, '')      // strip protocol
+    .replace(/[^a-zA-Z0-9_-]/g, '_');  // replace unsafe chars
 
-        // const normalizedURL = normalizeUrl(url)
-          // 1) make a filesystem-safe "slug" from the URL
-        const slug = url
-        .replace(/(^\w+:|^)\/\//, '')      // strip protocol
-        .replace(/[^a-zA-Z0-9_-]/g, '_');  // replace unsafe chars
+  // 2) make the folder: data/<slug>/
+  const urlDir = path.join(OUTPUT_DIR, slug);
+  fs.mkdirSync(urlDir, { recursive: true });
 
+  // ~~ Save terminal output ~~
+  // open a write‐stream for all terminal output
+  const termStream = fs.createWriteStream(path.join(urlDir, 'terminal.log'), { flags: 'a' });
 
-        // 2) make the folder: data/<slug>/
-        const urlDir = path.join(OUTPUT_DIR, slug);
-        fs.mkdirSync(urlDir, { recursive: true });
+  // save originals
+  const origStdout = process.stdout.write.bind(process.stdout);
+  const origStderr = process.stderr.write.bind(process.stderr);
 
-                // ~~ Save terminal output ~~
-        // open a write‐stream for all terminal output
-        const termStream = fs.createWriteStream(path.join(urlDir, 'terminal.log'), { flags: 'a' });
+  // override them
+  process.stdout.write = (chunk, encoding, callback) => {
+    termStream.write(chunk, encoding, callback);
+    return origStdout(chunk, encoding, callback);
+  };
+  process.stderr.write = (chunk, encoding, callback) => {
+    termStream.write(chunk, encoding, callback);
+    return origStderr(chunk, encoding, callback);
+  };
+  
+  let page = null;
+  let client = null;
+  let instrumentationResult = null;
+  
+  try {
+    // 3) create queues that write into that folder
+    const networkQueue = new DataQueue(path.join(urlDir, 'network.log'));
+    const domQueue     = new DataQueue(path.join(urlDir, 'dom.log'));
+    const responseQueue = new DataQueue(path.join(urlDir, 'responses.log'));
+    const consoleQueue = new DataQueue(path.join(urlDir, 'console.log'));
+    const debugQueue   = new DataQueue(path.join(urlDir, 'debug.log'));
+    const interactionQueue = new DataQueue(path.join(urlDir, 'interactions.log'));
+    const detectionQueue = new DataQueue(path.join(urlDir, 'detection.log'));
 
-        // save originals
-        const origStdout = process.stdout.write.bind(process.stdout);
-        const origStderr = process.stderr.write.bind(process.stderr);
-
-        // override them
-        process.stdout.write = (chunk, encoding, callback) => {
-          termStream.write(chunk, encoding, callback);
-          return origStdout(chunk, encoding, callback);
-        };
-        process.stderr.write = (chunk, encoding, callback) => {
-          termStream.write(chunk, encoding, callback);
-          return origStderr(chunk, encoding, callback);
-        };
-      try {
-        // 3) create queues that write into that folder
-        const networkQueue = new DataQueue(path.join(urlDir, 'network.log'));
-        const domQueue     = new DataQueue(path.join(urlDir, 'dom.log'));
-        const responseQueue = new DataQueue(path.join(urlDir, 'responses.log'));
-        const consoleQueue = new DataQueue(path.join(urlDir, 'console.log'));
-        const debugQueue   = new DataQueue(path.join(urlDir, 'debug.log'));
-        const interactionQueue = new DataQueue(path.join(urlDir, 'interactions.log'));
-        const detectionQueue = new DataQueue(path.join(urlDir, 'detection.log'));
-
-         // 1) figure out which full URL actually works:
-        const page = await browser.newPage();
-        const instrumentationResult = await enhancedInstrumentPage(page, {
-          networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue
-        });
+    // Add queues to site-specific array for cleanup
+    siteQueues.push(networkQueue, domQueue, responseQueue, consoleQueue, debugQueue, interactionQueue, detectionQueue);
+    
+    // 1) figure out which full URL actually works:
+    page = await browser.newPage();
+    instrumentationResult = await enhancedInstrumentPage(page, {
+      networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue
+    });
         // Enhanced bot mitigation: randomize UA & viewport + advanced techniques
         await page.setUserAgent(
           userAgents[Math.floor(Math.random() * userAgents.length)]
@@ -155,29 +190,41 @@ const allQueues = [];
           logMitigation: true
         });
         
-        // 4) register them so the flushTimer knows about them
-        allQueues.push(networkQueue, domQueue, responseQueue, consoleQueue, debugQueue, interactionQueue, detectionQueue);
-        detectionQueue.enqueue({ event: 'crawlStarted', timestamp: Date.now() }); // to ensure detection log always exists
-        const client = await page.target().createCDPSession();
+    detectionQueue.enqueue({ event: 'crawlStarted', timestamp: Date.now() }); // to ensure detection log always exists
+    
+    // Create CDP session with proper error handling
+    try {
+      client = await page.target().createCDPSession();
+      
+      // deal with bad certs
+      await client.send('Security.enable');
+      await client.send('Security.setIgnoreCertificateErrors', { ignore: true });
 
+      // Enable CDP domains with individual error handling
+      const cdpDomains = [
+        'Network.enable',
+        'Page.enable', 
+        'DOM.enable',
+        'Runtime.enable',
+        'Debugger.enable'
+      ];
+      
+      for (const domain of cdpDomains) {
+        try {
+          await client.send(domain);
+        } catch (err) {
+          console.warn(`⚠️  Failed to enable ${domain}: ${err.message}`);
+        }
+      }
+    } catch (err) {
+      console.error(`❌ Failed to create CDP session: ${err.message}`);
+      throw err;
+    }
 
-        // deal with bad certs
-        await client.send('Security.enable');
-        await client.send('Security.setIgnoreCertificateErrors', { ignore: true });
-
-
-        await Promise.all([
-          client.send('Network.enable'),
-          client.send('Page.enable'),
-          client.send('DOM.enable'),
-          client.send('Runtime.enable'),
-          client.send('Debugger.enable'),
-        ]);
-
-        workingUrl = null
-        let genericDetectionResults = {};
-        const stripped = url.replace(/^https?:\/\//, '').replace(/^www\./, '')
-        console.log(stripped);
+    let workingUrl = null;
+    let genericDetectionResults = {};
+    const stripped = url.replace(/^https?:\/\//, '').replace(/^www\./, '');
+    console.log(stripped);
 
         const [host, ...rest] = stripped.split('/');
         const pathPart = rest.length ? '/' + rest.join('/') : '';
@@ -218,8 +265,10 @@ const allQueues = [];
 
         if (!workingUrl) {
           console.warn(`‼ No working variant for ${url}, skipping.`);
-          await page.close();
-          continue;
+          if (page && !page.isClosed()) {
+            await page.close();
+          }
+          return; // Skip this site and return from function
         }
 
         normalizedURL = workingUrl
@@ -359,42 +408,46 @@ const allQueues = [];
         });
 
 
-      }
-      catch (err){
-        console.error(`Error crawling ${normalizedURL}:`, err);
-      }
-      finally{
-        process.stdout.write = origStdout;
-        process.stderr.write = origStderr;
-        termStream.end();
-        
-        // Cleanup enhanced instrumentation
-        if (typeof instrumentationResult !== 'undefined' && instrumentationResult.cleanup) {
-          try {
-            instrumentationResult.cleanup();
-          } catch (e) {
-            console.warn(`Could not cleanup instrumentation: ${e.message}`);
-          }
-        }
-        
-        if (typeof page !== 'undefined' && !page.isClosed()) {
-          try {
-            await page.close();
-          } catch (e) {
-            console.warn(`Could not close page: ${e.message}`);
-          }
-        }
+  } catch (err) {
+    console.error(`❌ Error crawling ${url}:`, err.message);
+  } finally {
+    // Restore terminal output
+    process.stdout.write = origStdout;
+    process.stderr.write = origStderr;
+    termStream.end();
+    
+    // Cleanup CDP session first
+    if (client) {
+      try {
+        await client.detach();
+      } catch (e) {
+        console.warn(`⚠️  Could not detach CDP session: ${e.message}`);
       }
     }
-
-      // Close browser and flush remaining data
-      try { await finalPage.close(); } catch {}
-
-      // flush _all_ queues one last time
-      clearInterval(flushTimer);
-      await Promise.all(allQueues.map(q => q.flush()));
-
-      console.log('All data flushed, exiting.');
-
-  });
-})();
+    
+    // Cleanup enhanced instrumentation
+    if (instrumentationResult && instrumentationResult.cleanup) {
+      try {
+        instrumentationResult.cleanup();
+      } catch (e) {
+        console.warn(`⚠️  Could not cleanup instrumentation: ${e.message}`);
+      }
+    }
+    
+    // Close page
+    if (page && !page.isClosed()) {
+      try {
+        await page.close();
+      } catch (e) {
+        console.warn(`⚠️  Could not close page: ${e.message}`);
+      }
+    }
+    
+    // Flush site-specific queues
+    try {
+      await Promise.all(siteQueues.map(q => q.flush()));
+    } catch (e) {
+      console.warn(`⚠️  Could not flush queues: ${e.message}`);
+    }
+  }
+}
