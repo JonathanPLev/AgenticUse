@@ -8,6 +8,7 @@ async function instrumentPage(page, queues) {
     consoleQueue,
     debugQueue,
     domQueue,       // if you have it
+    interactionQueue,  // for logging input interactions
   } = queues;
 
   // --- CDP session (best for bodies & extra metadata) ---
@@ -27,14 +28,15 @@ async function instrumentPage(page, queues) {
     try { await client.send('Debugger.resume'); } catch {}
   });
 
-  // Requests (CDP)
+  // Requests (CDP) - Enhanced with interaction tracking
   client.on('Network.requestWillBeSent', async params => {
     let postData = params.request.postData || null;
     try {
       const req = await client.send('Network.getRequestPostData', { requestId: params.requestId });
       if (req.postData) postData = req.postData;
     } catch {}
-    networkQueue?.enqueue?.({
+    
+    const requestData = {
       event: 'requestWillBeSent',
       requestId: params.requestId,
       url: params.request.url,
@@ -43,8 +45,35 @@ async function instrumentPage(page, queues) {
       postData,
       ts: Date.now(),
       frameId: params?.frameId,
-      type: params?.type
-    });
+      type: params?.type,
+      initiator: params?.initiator,
+      // Enhanced initiator analysis - identify script and function if possible
+      initiatorScript: params?.initiator?.url || 'unknown',
+      initiatorFunction: params?.initiator?.functionName || 'unknown',
+      initiatorLineNumber: params?.initiator?.lineNumber || 'unknown',
+      initiatorType: params?.initiator?.type || 'unknown',
+      resourceType: params?.type,
+      isInteractionTriggered: false // Will be set by interaction handler
+    };
+    
+    networkQueue?.enqueue?.(requestData);
+    
+    // Enhanced interaction-related request detection using generic patterns
+    const interactionPatterns = [
+      /api/i, /submit/i, /search/i, /chat/i, /contact/i, /support/i,
+      /message/i, /query/i, /form/i, /post/i, /send/i, /ajax/i
+    ];
+    
+    const isInteractionRelated = params.request.method !== 'GET' || 
+      interactionPatterns.some(pattern => pattern.test(params.request.url));
+    
+    if (isInteractionRelated) {
+      interactionQueue?.enqueue?.({
+        ...requestData,
+        event: 'potentialInteractionRequest',
+        detectionReason: params.request.method !== 'GET' ? 'non-GET method' : 'URL pattern match'
+      });
+    }
   });
 
   // Responses (CDP) — capture up to 1MB text preview

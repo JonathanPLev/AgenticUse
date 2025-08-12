@@ -1,3 +1,6 @@
+// cdp_site_crawler.cjs
+// Production-ready web crawler with advanced bot mitigation, automatic cookie consent handling,
+// comprehensive input interaction, and detailed network/DOM instrumentation.
 // crawl_with_puppeteer.js
 // A Puppeteer + CDP crawler with batching, network tracking (including request body), DOM snapshots (including iframes),
 // runtime/console capture, Debugger instrumentation breakpoints, and basic bot-mitigation.
@@ -15,7 +18,6 @@
 // 1 day: start crawl on 1000 pages
 // 3-4 days: get list of AI tools and regexs to run on 1000 pages. finalize script
 // 3 days: run offline tool, see if it works
-
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
@@ -24,12 +26,17 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { clearInterval } = require('timers');
 const { chatbotProviders, viewports, userAgents } = require("./static_data_structs.cjs");
 const interactWithAllForms = require("./input_interaction.cjs")
+const { enhancedInputInteraction } = require('./enhanced_input_interaction');
+const { performGenericDetection } = require('./generic_detection');
+const { applyBotMitigation, setRealisticHeaders } = require('./bot_mitigation');
+const { handleConsentBanners, waitForPageReady } = require('./consent_handler');
 const { instrumentPage } = require('./instrumentation');
+const { enhancedInstrumentPage } = require('./enhanced_instrumentation');
 
 // Plugins for basic bot mitigation
 puppeteer.use(StealthPlugin());
 
-const INPUT_CSV = 'test_URLs.csv'; // urls_with_subdomains_forCrawl.csv
+const INPUT_CSV = '../tranco_3N2WL.csv'; // Can also use 'test_URLs.csv' for testing
 const OUTPUT_DIR = 'data';
 let FLUSH_INTERVAL_MS = 5000;           // adjustable flush interval
 let workingUrl = null;
@@ -52,8 +59,14 @@ const allQueues = [];
 (async () => {
   const urls = [];
   fs.createReadStream(INPUT_CSV)
-    .pipe(csv())
-    .on('data', row => { if (row.url) urls.push(row.url); })
+    .pipe(csv({ headers: false })) // Tranco has no headers
+    .on('data', row => { 
+      // Tranco format: [id, domain] - we want the domain (index 1)
+      const domain = row[1];
+      if (domain && domain.trim()) {
+        urls.push(domain.trim());
+      }
+    })
     .on('end', async () => {
       console.log(`Loaded ${urls.length} URLs.`);
 
@@ -82,19 +95,8 @@ const allQueues = [];
 
       for (const url of urls) {
 
-         // 1) figure out which full URL actually works:
-        const page = await browser.newPage();
-        await instrumentPage(page, {
-          networkQueue, responseQueue, consoleQueue, debugQueue, domQueue
-        });
-        // Bot mitigation: randomize UA & viewport
-        await page.setUserAgent(
-          userAgents[Math.floor(Math.random() * userAgents.length)]
-        );
-        await page.setViewport(viewports[Math.floor(Math.random() * viewports.length)]);
-
         // const normalizedURL = normalizeUrl(url)
-          // 1) make a filesystem-safe “slug” from the URL
+          // 1) make a filesystem-safe "slug" from the URL
         const slug = url
         .replace(/(^\w+:|^)\/\//, '')      // strip protocol
         .replace(/[^a-zA-Z0-9_-]/g, '_');  // replace unsafe chars
@@ -122,15 +124,39 @@ const allQueues = [];
           return origStderr(chunk, encoding, callback);
         };
       try {
-        // 3) create four queues that write into that folder
+        // 3) create queues that write into that folder
         const networkQueue = new DataQueue(path.join(urlDir, 'network.log'));
         const domQueue     = new DataQueue(path.join(urlDir, 'dom.log'));
+        const responseQueue = new DataQueue(path.join(urlDir, 'responses.log'));
         const consoleQueue = new DataQueue(path.join(urlDir, 'console.log'));
         const debugQueue   = new DataQueue(path.join(urlDir, 'debug.log'));
-        const detectionQueue = new DataQueue(path.join(urlDir, 'detection.log'))
+        const interactionQueue = new DataQueue(path.join(urlDir, 'interactions.log'));
+        const detectionQueue = new DataQueue(path.join(urlDir, 'detection.log'));
+
+         // 1) figure out which full URL actually works:
+        const page = await browser.newPage();
+        const instrumentationResult = await enhancedInstrumentPage(page, {
+          networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue
+        });
+        // Enhanced bot mitigation: randomize UA & viewport + advanced techniques
+        await page.setUserAgent(
+          userAgents[Math.floor(Math.random() * userAgents.length)]
+        );
+        await page.setViewport(viewports[Math.floor(Math.random() * viewports.length)]);
+        await setRealisticHeaders(page);
+        
+        // Apply advanced bot mitigation before any page interaction
+        await applyBotMitigation(page, {
+          enableMouseMovement: true,
+          enableRandomScrolling: true,
+          enableWebGLFingerprinting: true,
+          enableCanvasFingerprinting: true,
+          enableTimingAttacks: true,
+          logMitigation: true
+        });
         
         // 4) register them so the flushTimer knows about them
-        allQueues.push(networkQueue, domQueue, consoleQueue, debugQueue, detectionQueue);
+        allQueues.push(networkQueue, domQueue, responseQueue, consoleQueue, debugQueue, interactionQueue, detectionQueue);
         detectionQueue.enqueue({ event: 'crawlStarted', timestamp: Date.now() }); // to ensure detection log always exists
         const client = await page.target().createCDPSession();
 
@@ -149,6 +175,7 @@ const allQueues = [];
         ]);
 
         workingUrl = null
+        let genericDetectionResults = {};
         const stripped = url.replace(/^https?:\/\//, '').replace(/^www\./, '')
         console.log(stripped);
 
@@ -164,7 +191,7 @@ const allQueues = [];
               console.log(`🕵️ Detected provider ${name} on ${req.frame().url()}`);
               detectionQueue.enqueue({
                 event: 'providerDetected',
-                provider: providerName,
+                provider: name,
                 url: req.url()
               });
             }
@@ -263,6 +290,26 @@ const allQueues = [];
         // Navigate and scroll
         try {
           await page.goto(normalizedURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          
+          // Apply consent banner handling with Consent-O-Matic
+          await handleConsentBanners(page);
+          await waitForPageReady(page);
+        
+          // Perform generic detection for search elements and chatbots (Comments 8, 9, 10)
+          console.log('🔍 Running generic detection (regex-based patterns + iframe support)...');
+          genericDetectionResults = await performGenericDetection(page, domQueue);
+        
+          // Log generic detection results to interaction queue
+          interactionQueue?.enqueue?.({
+            event: 'genericDetectionResults',
+            url: url,
+            searchElements: genericDetectionResults.searchElements.length,
+            chatbots: genericDetectionResults.chatbots.length,
+            iframeChatbots: genericDetectionResults.iframeChatbots.length,
+            timestamp: Date.now(),
+            detectionDetails: genericDetectionResults
+          });
+          
           await scrollWithPauses(page);
         } catch (err) {
           console.warn(`Navigation failed for ${normalizedURL}: ${err.message}`);
@@ -272,14 +319,42 @@ const allQueues = [];
         const { frameTree } = await client.send('Page.getFrameTree');
         await captureFrameDOM(page, domQueue);
 
-        // const detectionResult = await chatbotDetector(page, normalizedURL);
-        // console.log('🔎 chat found?', detectionResult.foundAnyKeywords);
+        // Enhanced input interaction with generic detection, fresh tabs and detailed logging
+        const interactionSummary = await enhancedInputInteraction(page, url, {
+          instrumentPage,
+          queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue },
+          logFile: path.join(urlDir, 'interaction_log.json'),
+          maxInteractionsPerPage: 20,
+          interactionTimeout: 30000,
+          enableBotMitigation: true,
+          // Pass generic detection results to enhance interaction targeting
+          genericDetectionResults: genericDetectionResults || {}
+        });  
+        
+        // Log the interaction summary
+        interactionQueue.enqueue({
+          event: 'interactionSummary',
+          url: workingUrl,
+          summary: interactionSummary,
+          timestamp: Date.now()
+        });
+        
+        console.log(`📊 Completed ${interactionSummary.totalInteractions} interactions with ${interactionSummary.totalNetworkRequests} network requests`);
+        console.log(`✅ Crawled ${url} successfully`);
+        console.log(`   - Network requests: ${interactionSummary.totalNetworkRequests}`);
+        console.log(`   - Input interactions: ${interactionSummary.totalInteractions}`);
+        console.log(`   - Elements found: ${interactionSummary.totalElementsFound}`);
+        console.log(`   - Generic search elements: ${interactionSummary.genericSearchElements}`);
+        console.log(`   - Generic chatbots: ${interactionSummary.genericChatbots}`);
+        console.log(`   - Iframe chatbots: ${interactionSummary.iframeChatbots}`);
+        
+        // Keep original form interaction as fallback/additional coverage
         const finalPage = await interactWithAllForms(page, workingUrl, {
           instrumentPage,
-          queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue },
-          openUrlMode: 'original',       // open submission tabs at *original* or switch to 'final'
-          finalFreshOriginal: true,      // ALWAYS end with a brand-new originalUrl tab
-          closeSubmissionTabs: true,     // collect traffic then close temp tabs
+          queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue },
+          openUrlMode: 'original',
+          finalFreshOriginal: true,
+          closeSubmissionTabs: true,
           bodyPreviewLimit: 1_000_000,
         });
 
@@ -292,7 +367,17 @@ const allQueues = [];
         process.stdout.write = origStdout;
         process.stderr.write = origStderr;
         termStream.end();
-        if (!page.isClosed()) {
+        
+        // Cleanup enhanced instrumentation
+        if (typeof instrumentationResult !== 'undefined' && instrumentationResult.cleanup) {
+          try {
+            instrumentationResult.cleanup();
+          } catch (e) {
+            console.warn(`Could not cleanup instrumentation: ${e.message}`);
+          }
+        }
+        
+        if (typeof page !== 'undefined' && !page.isClosed()) {
           try {
             await page.close();
           } catch (e) {

@@ -7,24 +7,73 @@ const viewports = [
   { width: 1680, height: 1050 }
 ];
 
+// Validated real browser user agents - all combinations exist and are feasible
 const userAgents = [
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.110 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.6045.199 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.5993.117 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/117.0.5938.149 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.5845.188 Safari/537.36",
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.5790.171 Safari/537.36"
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0"
 ];
 
 
+// Generic regex patterns for chatbot detection (instead of hardcoded exact matches)
+const chatbotPatterns = [
+    /chat/i,           // matches anything containing "chat"
+    /support/i,        // matches anything containing "support"
+    /help/i,           // matches anything containing "help"
+    /assistant/i,      // matches anything containing "assistant"
+    /bot/i,            // matches anything containing "bot"
+    /message/i,        // matches anything containing "message"
+    /converse/i,       // matches anything containing "converse"
+    /discuss/i,        // matches anything containing "discuss"
+    /consult/i,        // matches anything containing "consult"
+    /inquire/i         // matches anything containing "inquire"
+];
+
+// Generic chatbot detection patterns (instead of hardcoded providers)
+const genericChatbotDetection = {
+  // Network patterns - look for these in URLs/domains
+  networkPatterns: [
+    /chat/i, /widget/i, /support/i, /help/i, /bot/i, /assistant/i,
+    /intercom/i, /zendesk/i, /drift/i, /crisp/i, /freshchat/i, /olark/i,
+    /livechat/i, /tidio/i, /hubspot/i, /messenger/i, /chatlio/i
+  ],
+  
+  // DOM patterns - look for these in selectors/classes/ids
+  domPatterns: [
+    /chat/i, /widget/i, /launcher/i, /support/i, /help/i, /bot/i,
+    /message/i, /conversation/i, /assistant/i, /contact/i
+  ],
+  
+  // Text patterns - look for these in visible text
+  textPatterns: [
+    /chat with us/i, /need help/i, /contact support/i, /ask a question/i,
+    /talk to us/i, /get help/i, /live chat/i, /customer support/i
+  ]
+};
+
+// Generic search detection patterns (instead of exact matches)
+const genericSearchDetection = {
+  // Search patterns for element attributes
+  searchPatterns: [
+    /search/i,         // matches anything containing "search"
+    /find/i,           // matches anything containing "find"
+    /query/i,          // matches anything containing "query"
+    /lookup/i          // matches anything containing "lookup"
+  ]
+};
+
+// Legacy exact keywords for backward compatibility
 const chatbotKeywords = [
     'chat widget',
     "let's chat",
-    'drift-widget',
+    'drift-widget', 
     'chat now',
-    'chatbot',
-    // TODO: …add more as you discover them
-  ];
+    'chatbot'
+];
 
 // static_data.js
 const chatbotProviders = {
@@ -66,22 +115,20 @@ const chatLaunchers = [
     '#crisp-chatbox',              // Crisp container
     '.crisp-client .launcher',
 
-    // Freshchat
-    '.freshchat-launcher',         // official freshchat toggle
+  // Freshchat
+  '.freshchat-launcher',         // official freshchat toggle
 
-    // Olark
-    '.olark-launcher',
+  // Olark
+  '.olark-launcher',
 
-    // Generic “chat” keywords
-    '.chat-widget',
-    '#chat-widget',
-    '.chat-toggle',
-    '.open-chat',
-    '[aria-label*="chat"]',
-    'button[data-qa="chat-launcher"]',
-  ];
+  // Generic regex patterns for search detection (instead of exact matches)
+  /search/i,         // matches anything containing "search"
+  /find/i,           // matches anything containing "find"
+  /query/i,          // matches anything containing "query"
+  /lookup/i          // matches anything containing "lookup"
+];
 
- const searchBarSelectors = [
+const searchBarSelectors = [
   // Attribute-based (broad match, case-insensitive)
   'input[type="search"]',
   'input[type="text"]',
@@ -137,14 +184,15 @@ const helpLaunchers = [
   '[data-testid*="assistant" i]',
 ];
 
-
-
-module.exports = {
-    chatbotKeywords,
-    chatbotProviders,
-    chatLaunchers,
-    searchBarSelectors,
-    helpLaunchers,
-    viewports,
-    userAgents
-}
+module.exports = { 
+  chatbotProviders, 
+  genericChatbotDetection,
+  genericSearchDetection,
+  chatbotPatterns,
+  viewports, 
+  userAgents, 
+  chatbotKeywords,
+  chatLaunchers,
+  searchBarSelectors,
+  helpLaunchers
+};

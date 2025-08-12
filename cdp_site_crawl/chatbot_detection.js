@@ -1,3 +1,6 @@
+const { chatbotKeywords, chatbotProviders, chatLaunchers } = require("./static_data_structs.cjs");
+
+
 async function chatbotDetector(page, url){
     page.on('request', req => {
         for (const [name, re] of Object.entries(chatbotProviders)) {
@@ -13,7 +16,6 @@ async function chatbotDetector(page, url){
 
     if (!chatFound) {
         console.log('No chatbot keywords found—exiting.');
-        await browser.close();
         return;
     }
 
@@ -21,15 +23,11 @@ async function chatbotDetector(page, url){
     const opened = await openChatLauncher(page);
     if (!opened) {
         console.warn('⚠️ Unable to open chat launcher—exiting.');
-        await browser.close();
         return;
     }
 
     // 8) interact: send query and await response
     await interactWithChat(page, query);
-
-    await browser.close();
-
 
     // ————— Helpers —————
 
