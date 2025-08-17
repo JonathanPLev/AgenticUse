@@ -303,15 +303,31 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
-  // Enhanced error handling
+  // Enhanced error handling with website JS error filtering
   page.on('pageerror', error => {
     try {
-      consoleQueue?.enqueue?.({
-        event: 'pageerror',
-        message: error.message,
-        stack: error.stack,
-        timestamp: Date.now()
-      });
+      // Filter out common website JavaScript errors that don't affect our crawler
+      const errorMessage = error.message.toLowerCase();
+      const isWebsiteError = 
+        errorMessage.includes('unshift') ||
+        errorMessage.includes('cannot read properties of undefined') ||
+        errorMessage.includes('cannot read property') ||
+        errorMessage.includes('is not a function') ||
+        errorMessage.includes('adsbygoogle') ||
+        errorMessage.includes('gtag') ||
+        errorMessage.includes('analytics') ||
+        errorMessage.includes('facebook') ||
+        errorMessage.includes('twitter');
+      
+      // Only queue errors that might be related to our crawler
+      if (!isWebsiteError) {
+        consoleQueue?.enqueue?.({
+          event: 'pageerror',
+          message: error.message,
+          stack: error.stack,
+          timestamp: Date.now()
+        });
+      }
     } catch {}
   });
 

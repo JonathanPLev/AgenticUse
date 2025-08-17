@@ -290,7 +290,23 @@ async function processSingleSite(browser, url, siteQueues) {
         });
         
         page.on('pageerror', error => {
-          console.warn(`⚠️  Page error: ${error.message}`);
+          // Filter out common website JavaScript errors that don't affect our crawler
+          const errorMessage = error.message.toLowerCase();
+          const isWebsiteError = 
+            errorMessage.includes('unshift') ||
+            errorMessage.includes('cannot read properties of undefined') ||
+            errorMessage.includes('cannot read property') ||
+            errorMessage.includes('is not a function') ||
+            errorMessage.includes('adsbygoogle') ||
+            errorMessage.includes('gtag') ||
+            errorMessage.includes('analytics') ||
+            errorMessage.includes('facebook') ||
+            errorMessage.includes('twitter');
+          
+          // Only log errors that might be related to our crawler
+          if (!isWebsiteError) {
+            console.warn(`⚠️  Page error: ${error.message}`);
+          }
         });
         
         // Wait a moment for page to stabilize
@@ -371,14 +387,30 @@ async function processSingleSite(browser, url, siteQueues) {
       
       // Add error handling for page interactions
       page.on('pageerror', error => {
-        console.error(`Page error on ${page.url()}: ${error.message}`);
-        consoleQueue.enqueue({
-          type: 'pageError',
-          url: page.url(),
-          error: error.message,
-          stack: error.stack,
-          timestamp: Date.now()
-        });
+        // Filter out common website JavaScript errors that don't affect our crawler
+        const errorMessage = error.message.toLowerCase();
+        const isWebsiteError = 
+          errorMessage.includes('unshift') ||
+          errorMessage.includes('cannot read properties of undefined') ||
+          errorMessage.includes('cannot read property') ||
+          errorMessage.includes('is not a function') ||
+          errorMessage.includes('adsbygoogle') ||
+          errorMessage.includes('gtag') ||
+          errorMessage.includes('analytics') ||
+          errorMessage.includes('facebook') ||
+          errorMessage.includes('twitter');
+        
+        // Only log and queue errors that might be related to our crawler
+        if (!isWebsiteError) {
+          console.error(`Page error on ${page.url()}: ${error.message}`);
+          consoleQueue.enqueue({
+            type: 'pageError',
+            url: page.url(),
+            error: error.message,
+            stack: error.stack,
+            timestamp: Date.now()
+          });
+        }
       });
 
       page.on('error', error => {
