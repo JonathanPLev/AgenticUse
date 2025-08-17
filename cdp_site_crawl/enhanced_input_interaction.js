@@ -18,7 +18,7 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     maxInteractionsPerPage = Infinity, // No limit for production use
     interactionTimeout = 30000,
     enableBotMitigation = true,
-    testInputs = ['test input', 'Are you a bot?', 'hello', 'search query', '123']
+    testInputs = ['Where do I find the help center and help support', 'help center', 'support', 'customer service', 'contact support']
   } = opts;
 
   const browser = page.browser();

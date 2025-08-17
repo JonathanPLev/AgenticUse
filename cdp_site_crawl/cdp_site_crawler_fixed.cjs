@@ -316,8 +316,8 @@ async function processSingleSite(browser, url, siteQueues) {
       // FINAL FIX: Multiple navigation strategies with enhanced redirect detection
       let navigationSuccess = false;
       const navigationStrategies = [
-        { waitUntil: 'networkidle0', timeout: 45000 },
-        { waitUntil: 'domcontentloaded', timeout: 30000 },
+        { waitUntil: 'networkidle0', timeout: 60000 },
+        { waitUntil: 'domcontentloaded', timeout: 45000 },
         { waitUntil: 'load', timeout: 20000 },
         { waitUntil: 'networkidle2', timeout: 25000 } // Additional strategy
       ];
@@ -467,7 +467,7 @@ async function processSingleSite(browser, url, siteQueues) {
       queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue },
       logFile: path.join(urlDir, 'interaction_log.json'),
       maxInteractionsPerPage: 20,
-      interactionTimeout: 30000,
+      interactionTimeout: 45000,
       enableBotMitigation: true,
       // Pass generic detection results to enhance interaction targeting
       genericDetectionResults: genericDetectionResults || {}
@@ -502,6 +502,19 @@ async function processSingleSite(browser, url, siteQueues) {
 
   } catch (err) {
     console.error(`❌ Error crawling ${url}:`, err.message);
+    
+    // FIXED: Always ensure data is saved even on error
+    console.log(`💾 Ensuring data is saved for ${url} despite error...`);
+    try {
+      // Force flush all queues to save any collected data
+      if (siteQueues && siteQueues.length > 0) {
+        await Promise.all(siteQueues.map(q => q.flush()));
+        console.log(`💾 Successfully saved partial data for ${url}`);
+      }
+    } catch (flushError) {
+      console.warn(`⚠️  Could not save data for ${url}:`, flushError.message);
+    }
+    
     throw err; // Re-throw to be handled by caller
   } finally {
     // Restore terminal output
