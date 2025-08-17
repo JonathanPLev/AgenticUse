@@ -16,13 +16,13 @@ const { clearInterval } = require('timers');
 const { chatbotProviders, viewports, userAgents } = require("./static_data_structs.cjs");
 const interactWithAllForms = require("./input_interaction.cjs")
 const { enhancedInputInteraction } = require('./enhanced_input_interaction');
-const { performGenericDetection } = require('./generic_detection');
+const { performGenericDetection } = require('./generic_detection_fixed');
 
-// FINAL FIXES: Import final fixed modules
+// PRODUCTION FIXES: Import production fixed modules
 const { applyBotMitigation, setRealisticHeaders } = require('./bot_mitigation_final_fix');
 const { handleConsentBanners, waitForPageReady } = require('./consent_handler_fixed');
 const { instrumentPage } = require('./instrumentation');
-const { enhancedInstrumentPage } = require('./enhanced_instrumentation_final_fix');
+const { enhancedInstrumentPage } = require('./enhanced_instrumentation_production_fix');
 
 // FIXED: Enhanced stealth plugin configuration to prevent protocol issues
 const stealthPlugin = StealthPlugin();
@@ -433,13 +433,29 @@ async function processSingleSite(browser, url, siteQueues) {
 
     client = instrumentationResult.client;
 
-    // Generic detection for search bars and chatbots
+    // PRODUCTION FIX: Enhanced generic detection with dynamic content support
     console.log('🔍 Running generic detection (regex-based patterns + iframe support)...');
     const genericDetectionResults = await performGenericDetection(page, {
       enableIframeDetection: true,
       enableAdvancedPatterns: true,
+      enableDynamicDetection: true,
       logResults: true
     });
+    
+    // Log instrumentation status
+    if (instrumentationResult) {
+      const networkCount = instrumentationResult.getNetworkRequestCount ? instrumentationResult.getNetworkRequestCount() : 0;
+      const dynamicStatus = instrumentationResult.getDynamicContentStatus ? instrumentationResult.getDynamicContentStatus() : false;
+      const domains = instrumentationResult.getMeaningfulDomains ? instrumentationResult.getMeaningfulDomains() : [];
+      
+      console.log(`📊 Instrumentation Status:`);
+      console.log(`   🌐 Network requests: ${networkCount}`);
+      console.log(`   🔄 Dynamic content: ${dynamicStatus ? 'Detected' : 'None'}`);
+      console.log(`   🌍 Meaningful domains: ${domains.length}`);
+      if (domains.length > 0) {
+        console.log(`   📋 Domains: ${domains.slice(0, 5).join(', ')}${domains.length > 5 ? '...' : ''}`);
+      }
+    }
 
     // Capture DOM for main frame + iframes
     const { frameTree } = await client.send('Page.getFrameTree');
