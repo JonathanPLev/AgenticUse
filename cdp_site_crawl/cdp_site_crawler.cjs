@@ -340,8 +340,17 @@ async function processSingleSite(browser, url, siteQueues) {
           throw new Error('No page target available');
         }
         
-        // Log target info for debugging
-        console.log(`Target type: ${target._targetInfo?.type}, URL: ${target.url()}`);
+        // Wait for target to be properly initialized
+        let targetReady = false;
+        for (let i = 0; i < 10; i++) {
+          if (target.url() && target.url() !== 'about:blank') {
+            targetReady = true;
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+        
+        console.log(`Target URL: ${target.url()}, ready: ${targetReady}`);
         
         client = await target.createCDPSession();
         break; // Success, exit retry loop
@@ -406,6 +415,7 @@ async function processSingleSite(browser, url, siteQueues) {
         'DOM.enable',
         'Runtime.enable',
         'Debugger.enable'
+        // Removed 'Target.enable' - deprecated in newer Chrome versions
       ];
       
       for (const domain of cdpDomains) {
@@ -413,6 +423,7 @@ async function processSingleSite(browser, url, siteQueues) {
         while (domainRetries > 0) {
           try {
             await client.send(domain);
+            console.log(`✅ ${domain} enabled successfully`);
             break; // Success, move to next domain
           } catch (err) {
             domainRetries--;

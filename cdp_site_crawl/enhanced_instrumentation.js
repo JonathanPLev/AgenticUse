@@ -34,8 +34,17 @@ async function enhancedInstrumentPage(page, queues) {
         throw new Error('No page target available for enhanced instrumentation');
       }
       
-      // Log target info for debugging
-      console.log(`Enhanced instrumentation target type: ${target._targetInfo?.type}`);
+      // Wait for target to be properly initialized
+      let targetReady = false;
+      for (let i = 0; i < 10; i++) {
+        if (target.url() && target.url() !== 'about:blank') {
+          targetReady = true;
+          break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      console.log(`Enhanced instrumentation target URL: ${target.url()}, ready: ${targetReady}`);
       
       client = await target.createCDPSession();
       break;
@@ -57,13 +66,14 @@ async function enhancedInstrumentPage(page, queues) {
     'Page.enable',
     'Runtime.enable',
     'DOM.enable',
-    'Debugger.enable',
-    'Target.enable',
+    'Debugger.enable'
+    // Removed 'Target.enable' - deprecated in newer Chrome versions
   ];
   
   for (const domain of domains) {
     try {
       await client.send(domain);
+      console.log(`✅ ${domain} enabled successfully`);
     } catch (err) {
       console.warn(`⚠️  Failed to enable ${domain} in enhanced instrumentation: ${err.message}`);
       // Continue with other domains even if one fails
@@ -79,6 +89,10 @@ async function enhancedInstrumentPage(page, queues) {
   client.on('sessiondetached', () => {
     console.warn('📡 CDP session detached');
   });
+  
+  // Reduce frame logging noise - only log significant frame events
+  let frameEventCount = 0;
+  const MAX_FRAME_LOGS = 5;
   
   client.on('Page.frameAttached', async (params) => {
     try {
@@ -99,7 +113,11 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
       
-      console.log(`📎 Frame attached: ${frameId}`);
+      // Only log first few frame events to reduce noise
+      if (frameEventCount < MAX_FRAME_LOGS) {
+        console.log(`📎 Frame attached: ${frameId}`);
+        frameEventCount++;
+      }
     } catch (error) {
       console.warn(`⚠️  Error handling frame attach: ${error.message}`);
     }
@@ -122,7 +140,11 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
       
-      console.log(`📎 Frame detached: ${frameId}`);
+      // Only log first few frame events to reduce noise
+      if (frameEventCount < MAX_FRAME_LOGS) {
+        console.log(`📎 Frame detached: ${frameId}`);
+        frameEventCount++;
+      }
       
       // Clean up after a delay to allow for final processing
       setTimeout(() => {
@@ -152,7 +174,11 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
       
-      console.log(`🧭 Frame navigated: ${frame.id} -> ${frame.url}`);
+      // Only log main frame navigation and first few iframe navigations
+      if (frame.url && !frame.url.includes('about:blank') && frameEventCount < MAX_FRAME_LOGS) {
+        console.log(`🧭 Frame navigated: ${frame.id} -> ${frame.url}`);
+        frameEventCount++;
+      }
       
       // Process new iframe content with error handling
       await processFrameContent(client, frame.id, frame.url, domQueue, interactionQueue);
