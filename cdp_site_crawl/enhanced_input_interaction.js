@@ -142,6 +142,12 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
       } catch (error) {
         console.warn(`⚠️  Interaction ${interactionCount + 1} failed:`, error.message);
         
+        // Handle protocol errors - stop further interactions to prevent cascade failures
+        if (error.message.includes('Protocol error') || error.message.includes('Connection closed')) {
+          console.warn(`🚨 Protocol error detected, stopping further interactions to prevent cascade failures`);
+          break; // Exit the interaction loop
+        }
+        
         // If it's a URL-related error, try to continue with the original page instead of fresh tabs
         if (error.message.includes('Invalid parameters') || error.message.includes('url') || error.message.includes('navigate')) {
           console.log(`🔄 URL error detected, switching to original page interaction mode...`);
@@ -351,16 +357,29 @@ async function performSingleInteraction(page, elementInfo, testInput, timeout) {
   const startTime = Date.now();
   
   try {
-    // Find the element on the fresh page
-    const element = await findElementOnPage(page, elementInfo);
-    if (!element) {
-      return {
-        success: false,
-        error: 'Element not found on fresh page',
-        duration: Date.now() - startTime
-      };
+    // Find the element on the page with connection check
+    let element;
+    try {
+      element = await findElementOnPage(page, elementInfo);
+      if (!element) {
+        console.warn(`Element not found: ${JSON.stringify(elementInfo)}`);
+        return { success: false, error: 'Element not found' };
+      }
+      
+      // Verify element is still connected
+      const isConnected = await element.evaluate(el => el.isConnected).catch(() => false);
+      if (!isConnected) {
+        console.warn('Element is detached from DOM');
+        return { success: false, error: 'Element detached' };
+      }
+    } catch (findError) {
+      if (findError.message.includes('Protocol error') || findError.message.includes('Connection closed')) {
+        throw findError; // Re-throw protocol errors
+      }
+      console.warn(`Element finding failed: ${findError.message}`);
+      return { success: false, error: findError.message };
     }
-
+    
     // Scroll element into view
     await element.scrollIntoView();
     await randomDelay(200, 500);
@@ -669,13 +688,29 @@ async function triggerSubmissionEvents(page, element) {
  */
 async function fillRemainingFormFields(page, form) {
   try {
-    const emptyFields = await form.$$('input:required:not([type="submit"]):not([type="button"]):not([type="hidden"]), select:required, textarea:required');
+    // Check if form is still attached to DOM
+    const isAttached = await form.evaluate(el => el.isConnected).catch(() => false);
+    if (!isAttached) {
+      console.warn('Form is detached from DOM, skipping remaining fields');
+      return;
+    }
+    
+    const emptyFields = await form.$$('input:required:not([type="submit"]):not([type="button"]):not([type="hidden"]), select:required, textarea:required').catch(() => []);
     
     for (const field of emptyFields) {
-      const value = await field.evaluate(el => el.value);
-      if (!value || value.trim() === '') {
-        const type = await field.evaluate(el => el.type || el.tagName.toLowerCase());
-        await fillFieldByType(field, type);
+      try {
+        // Check if field is still attached
+        const fieldAttached = await field.evaluate(el => el.isConnected).catch(() => false);
+        if (!fieldAttached) continue;
+        
+        const value = await field.evaluate(el => el.value).catch(() => '');
+        if (!value || value.trim() === '') {
+          const type = await field.evaluate(el => el.type || el.tagName.toLowerCase()).catch(() => 'text');
+          await fillFieldByType(field, type);
+        }
+      } catch (fieldError) {
+        console.warn(`Field interaction failed: ${fieldError.message}`);
+        continue;
       }
     }
   } catch (error) {

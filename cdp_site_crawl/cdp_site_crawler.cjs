@@ -705,12 +705,18 @@ async function processSingleSite(browser, url, siteQueues) {
     process.stderr.write = origStderr;
     termStream.end();
     
-    // Cleanup CDP session first
+    // Cleanup CDP session first with better error handling
     if (client) {
       try {
-        await client.detach();
+        // Check if session is still active before detaching
+        if (client._connection && !client._connection._closed) {
+          await client.detach();
+        }
       } catch (e) {
-        console.warn(`⚠️  Could not detach CDP session: ${e.message}`);
+        // Ignore common cleanup errors that don't affect functionality
+        if (!e.message.includes('Session already detached') && !e.message.includes('Connection closed')) {
+          console.warn(`⚠️  Could not detach CDP session: ${e.message}`);
+        }
       }
     }
     
@@ -723,12 +729,17 @@ async function processSingleSite(browser, url, siteQueues) {
       }
     }
     
-    // Close page
-    if (page && !page.isClosed()) {
+    // Close page with better error handling
+    if (page) {
       try {
-        await page.close();
+        if (!page.isClosed()) {
+          await page.close();
+        }
       } catch (e) {
-        console.warn(`⚠️  Could not close page: ${e.message}`);
+        // Ignore common cleanup errors
+        if (!e.message.includes('Protocol error') && !e.message.includes('Connection closed')) {
+          console.warn(`⚠️  Could not close page: ${e.message}`);
+        }
       }
     }
     
