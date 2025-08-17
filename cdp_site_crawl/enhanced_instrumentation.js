@@ -20,20 +20,66 @@ async function enhancedInstrumentPage(page, queues) {
   const frameTracker = new Map();
   const processedFrames = new Set();
 
-  // Enhanced CDP session with comprehensive event handling
-  const client = await page.target().createCDPSession();
+  // Enhanced CDP session with comprehensive event handling and retry logic
+  let client;
+  let cdpRetries = 3;
   
-  // Enable all necessary domains
-  await Promise.all([
-    client.send('Network.enable'),
-    client.send('Page.enable'),
-    client.send('Runtime.enable'),
-    client.send('DOM.enable'),
-    client.send('Debugger.enable'),
-    client.send('Target.enable'),
-  ]);
+  while (cdpRetries > 0) {
+    try {
+      // Wait for page to stabilize
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      const target = page.target();
+      if (!target) {
+        throw new Error('No page target available for enhanced instrumentation');
+      }
+      
+      // Log target info for debugging
+      console.log(`Enhanced instrumentation target type: ${target._targetInfo?.type}`);
+      
+      client = await target.createCDPSession();
+      break;
+    } catch (cdpError) {
+      cdpRetries--;
+      console.warn(`⚠️  Enhanced CDP session creation failed (${3 - cdpRetries}/3): ${cdpError.message}`);
+      
+      if (cdpRetries === 0) {
+        throw new Error(`Failed to create enhanced CDP session: ${cdpError.message}`);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  
+  // Enable all necessary domains with individual error handling
+  const domains = [
+    'Network.enable',
+    'Page.enable',
+    'Runtime.enable',
+    'DOM.enable',
+    'Debugger.enable',
+    'Target.enable',
+  ];
+  
+  for (const domain of domains) {
+    try {
+      await client.send(domain);
+    } catch (err) {
+      console.warn(`⚠️  Failed to enable ${domain} in enhanced instrumentation: ${err.message}`);
+      // Continue with other domains even if one fails
+    }
+  }
 
   // Enhanced frame tracking - handle dynamic frame creation/destruction
+  // Add CDP session error handling
+  client.on('sessionattached', () => {
+    console.log('📡 CDP session attached successfully');
+  });
+  
+  client.on('sessiondetached', () => {
+    console.warn('📡 CDP session detached');
+  });
+  
   client.on('Page.frameAttached', async (params) => {
     try {
       const { frameId, parentFrameId } = params;

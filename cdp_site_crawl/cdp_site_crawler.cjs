@@ -33,8 +33,14 @@ const { handleConsentBanners, waitForPageReady } = require('./consent_handler');
 const { instrumentPage } = require('./instrumentation');
 const { enhancedInstrumentPage } = require('./enhanced_instrumentation');
 
-// Plugins for basic bot mitigation
-puppeteer.use(StealthPlugin());
+// Plugins for basic bot mitigation with error handling
+// Use a more minimal stealth configuration to avoid protocol issues
+const stealthPlugin = StealthPlugin();
+// Remove problematic evasions that can cause target closure
+stealthPlugin.enabledEvasions.delete('user-agent-override');
+stealthPlugin.enabledEvasions.delete('webgl.vendor');
+stealthPlugin.enabledEvasions.delete('webgl.renderer');
+puppeteer.use(stealthPlugin);
 
 const INPUT_CSV = '../tranco_3N2WL.csv'; // Can also use 'test_URLs.csv' for testing
 const OUTPUT_DIR = 'data';
@@ -154,7 +160,7 @@ const allQueues = [];
         try {
           browser = await puppeteer.launch({
             headless: false,   // extensions only work in headful mode
-            protocolTimeout: 60000, // Increased from 30000 to 60000 (1 minute)
+            protocolTimeout: 120000, // Increased to 2 minutes for problematic sites
             ignoreDefaultArgs: [
               '--disable-extensions',
               '--disable-component-extensions-with-background-pages',
@@ -170,10 +176,14 @@ const allQueues = [];
               '--disable-accelerated-2d-canvas',
               '--no-zygote',
               '--disable-gpu',
-              '--disable-features=IsolateOrigins,site-per-process'  // Add this for better iframe handling
+              '--disable-features=IsolateOrigins,site-per-process',  // Add this for better iframe handling
+              '--disable-web-security',  // Help with CORS issues
+              '--disable-features=VizDisplayCompositor',  // Reduce GPU issues
+              '--disable-backgrounding-occluded-windows',  // Keep tabs active
+              '--disable-renderer-backgrounding'  // Keep renderer active
             ],
             userDataDir: path.join(__dirname, `profile_${i}_${Date.now()}`),
-            dumpio: true  // Enable verbose logging
+            dumpio: false  // Disable verbose logging to reduce noise
           });
 
           // Create site-specific queues array for this iteration
@@ -269,10 +279,44 @@ async function processSingleSite(browser, url, siteQueues) {
     siteQueues.push(networkQueue, domQueue, responseQueue, consoleQueue, debugQueue, interactionQueue, detectionQueue);
     
     // 1) figure out which full URL actually works:
-    page = await browser.newPage();
-    instrumentationResult = await enhancedInstrumentPage(page, {
-      networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue
-    });
+    let pageCreationRetries = 3;
+    while (pageCreationRetries > 0) {
+      try {
+        page = await browser.newPage();
+        
+        // Add page error handlers before instrumentation
+        page.on('error', error => {
+          console.error(`🚨 Page crashed: ${error.message}`);
+        });
+        
+        page.on('pageerror', error => {
+          console.warn(`⚠️  Page error: ${error.message}`);
+        });
+        
+        // Wait a moment for page to stabilize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        instrumentationResult = await enhancedInstrumentPage(page, {
+          networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue
+        });
+        break; // Success
+      } catch (pageError) {
+        pageCreationRetries--;
+        console.warn(`⚠️  Page creation attempt failed (${3 - pageCreationRetries}/3): ${pageError.message}`);
+        
+        if (page && !page.isClosed()) {
+          try {
+            await page.close();
+          } catch (e) {}
+        }
+        
+        if (pageCreationRetries === 0) {
+          throw new Error(`Failed to create page after 3 attempts: ${pageError.message}`);
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
     
     // Set basic page properties (but don't run full bot mitigation yet)
     await page.setUserAgent(
@@ -283,9 +327,38 @@ async function processSingleSite(browser, url, siteQueues) {
         
     detectionQueue.enqueue({ event: 'crawlStarted', timestamp: Date.now() }); // to ensure detection log always exists
     
-    // Create CDP session with proper error handling
+    // Create CDP session with proper error handling and retry logic
+    let cdpRetries = 3;
+    while (cdpRetries > 0) {
+      try {
+        // Wait a bit before creating CDP session to ensure page is stable
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Check if page target is available
+        const target = page.target();
+        if (!target) {
+          throw new Error('No page target available');
+        }
+        
+        // Log target info for debugging
+        console.log(`Target type: ${target._targetInfo?.type}, URL: ${target.url()}`);
+        
+        client = await target.createCDPSession();
+        break; // Success, exit retry loop
+      } catch (cdpError) {
+        cdpRetries--;
+        console.warn(`⚠️  CDP session creation attempt failed (${3 - cdpRetries}/3): ${cdpError.message}`);
+        
+        if (cdpRetries === 0) {
+          throw new Error(`Failed to create CDP session after 3 attempts: ${cdpError.message}`);
+        }
+        
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
     try {
-      client = await page.target().createCDPSession();
       
       // Add error handling for page interactions
       page.on('pageerror', error => {
@@ -326,7 +399,7 @@ async function processSingleSite(browser, url, siteQueues) {
       await client.send('Security.enable');
       await client.send('Security.setIgnoreCertificateErrors', { ignore: true });
 
-      // Enable CDP domains with individual error handling
+      // Enable CDP domains with individual error handling and retries
       const cdpDomains = [
         'Network.enable',
         'Page.enable', 
@@ -336,10 +409,20 @@ async function processSingleSite(browser, url, siteQueues) {
       ];
       
       for (const domain of cdpDomains) {
-        try {
-          await client.send(domain);
-        } catch (err) {
-          console.warn(`⚠️  Failed to enable ${domain}: ${err.message}`);
+        let domainRetries = 2;
+        while (domainRetries > 0) {
+          try {
+            await client.send(domain);
+            break; // Success, move to next domain
+          } catch (err) {
+            domainRetries--;
+            if (domainRetries === 0) {
+              console.warn(`⚠️  Failed to enable ${domain} after retries: ${err.message}`);
+            } else {
+              console.warn(`⚠️  Retrying ${domain} (${2 - domainRetries}/2): ${err.message}`);
+              await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+          }
         }
       }
     } catch (err) {
