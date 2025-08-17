@@ -120,9 +120,23 @@ async function applyBotMitigation(page, options = {}) {
       }
     }
 
-    // 6. Random scrolling behavior
+    // 6. Human-like scrolling (simplified)
     if (enableRandomScrolling) {
-      await simulateHumanScrolling(page);
+      try {
+        await Promise.race([
+          simulateHumanScrolling(page),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Scrolling timeout')), 5000)
+          )
+        ]);
+      } catch (error) {
+        console.warn('Human scrolling simulation failed:', error.message);
+      }
+    }
+
+    // 7. Random delays throughout (shorter)
+    if (enableRandomDelays) {
+      await randomDelay(200, 800);
     }
 
     // 7. Random clicks on non-interactive elements

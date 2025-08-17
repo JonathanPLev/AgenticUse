@@ -52,8 +52,6 @@ async function verifyConsentOMatic() {
     console.log('🚀 Launching browser with extension...');
     await new Promise(resolve => setTimeout(resolve, 3000));
 
-    const page = await browser.newPage();
-    
     // Test on a site with known cookie banners
     const testSites = [
       'https://www.bbc.com',
@@ -64,7 +62,14 @@ async function verifyConsentOMatic() {
     for (const testUrl of testSites) {
       console.log(`\n🌐 Testing on: ${testUrl}`);
       
+      // Create a fresh page for each test to avoid frame detachment issues
+      let page = null;
       try {
+        page = await browser.newPage();
+        
+        // Set a reasonable timeout and user agent
+        await page.setUserAgent('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        
         await page.goto(testUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
         
         // Wait for extension to potentially work
@@ -129,27 +134,51 @@ async function verifyConsentOMatic() {
         
       } catch (error) {
         console.error(`❌ Error testing ${testUrl}:`, error.message);
+      } finally {
+        // Always close the page to prevent frame detachment issues
+        if (page && !page.isClosed()) {
+          try {
+            await page.close();
+          } catch (e) {
+            console.warn(`⚠️  Could not close page: ${e.message}`);
+          }
+        }
       }
     }
 
     // Test extension permissions and content script injection
     console.log('\n🔧 Testing extension permissions...');
     
-    const extensionPages = await browser.pages();
-    console.log(`📄 Total pages open: ${extensionPages.length}`);
-    
-    // Check if extension background page exists
-    const targets = await browser.targets();
-    const extensionTargets = targets.filter(target => target.type() === 'background_page');
-    console.log(`🔌 Extension background pages: ${extensionTargets.length}`);
-    
-    if (extensionTargets.length > 0) {
-      console.log('✅ Extension background page detected - extension is loaded!');
-    } else {
-      console.log('⚠️  No extension background page found');
+    try {
+      const extensionPages = await browser.pages();
+      console.log(`📄 Total pages open: ${extensionPages.length}`);
+      
+      // Check if extension background page exists
+      const targets = await browser.targets();
+      const extensionTargets = targets.filter(target => target.type() === 'background_page');
+      console.log(`🔌 Extension background pages: ${extensionTargets.length}`);
+      
+      if (extensionTargets.length > 0) {
+        console.log('✅ Extension background page detected - extension is loaded!');
+        
+        // Try to get more info about the extension
+        for (const target of extensionTargets) {
+          try {
+            const targetPage = await target.page();
+            if (targetPage) {
+              const url = targetPage.url();
+              console.log(`   Extension URL: ${url}`);
+            }
+          } catch (e) {
+            console.log(`   Extension target found but couldn't access details`);
+          }
+        }
+      } else {
+        console.log('⚠️  No extension background page found');
+      }
+    } catch (error) {
+      console.error(`❌ Error checking extension permissions:`, error.message);
     }
-
-    await page.close();
     
   } catch (error) {
     console.error('❌ Verification failed:', error.message);

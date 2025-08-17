@@ -35,4 +35,15 @@ cdp_site_crawl/fix_validation_report.json
 # CDP Site Crawler - CSV files with sensitive data (keep test_urls.csv for reference)
 cdp_site_crawl/urls_with_subdomains_forCrawl.csv
 
+# CDP Site Crawler - Test files and temporary data
+cdp_site_crawl/test_error_handling.js
+cdp_site_crawl/test_error_URLs.csv
+cdp_site_crawl/crawl_errors.log
+cdp_site_crawl/data/test-incomplete_com/
+cdp_site_crawl/data/invalid-url-test_com/
+cdp_site_crawl/data/nonexistent-domain-12345_com/
+cdp_site_crawl/data/amazon-adsystem_com/
+cdp_site_crawl/data/google_com/
+cdp_site_crawl/profile_*/
+
 .DS_Store

@@ -54,20 +54,61 @@ class DataQueue {
     this.filePath = filePath;
     this.queue = [];
     this.batchSize = batchSize;
+    this.isFlushing = false;
+    this.flushPromise = Promise.resolve();
+    
+    // Ensure directory exists
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    
+    // Create empty file if it doesn't exist
+    if (!fs.existsSync(filePath)) {
+      fs.writeFileSync(filePath, '');
+    }
   }
 
   enqueue(item) {
     this.queue.push(item);
+    // Auto-flush if we've reached batch size
+    if (this.queue.length >= this.batchSize && !this.isFlushing) {
+      this.flush().catch(console.error);
+    }
   }
 
   async flush() {
-    if (this.queue.length === 0) return;
-    // 1) pull off up to batchSize items
+    if (this.queue.length === 0 || this.isFlushing) return this.flushPromise;
+    
+    this.isFlushing = true;
     const batch = this.queue.splice(0, this.batchSize);
-    const out = batch.map(x => JSON.stringify(x)).join('\n') + '\n';
-
-    // 2) append asynchronously (no more blocking sync I/O)
-    await fs.promises.appendFile(this.filePath, out);
+    
+    try {
+      const out = batch.map(x => JSON.stringify(x)).join('\n') + '\n';
+      await fs.promises.appendFile(this.filePath, out, { flag: 'a' });
+    } catch (error) {
+      console.error(`Error writing to ${this.filePath}:`, error);
+      // Put the batch back in the queue for retry
+      this.queue.unshift(...batch);
+      throw error;
+    } finally {
+      this.isFlushing = false;
+      
+      // If more items were added while we were writing, flush again
+      if (this.queue.length > 0) {
+        return this.flush();
+      }
+    }
+  }
+  
+  // Wait for all pending writes to complete
+  async waitForFlush() {
+    while (this.isFlushing || this.queue.length > 0) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      if (this.queue.length > 0 && !this.isFlushing) {
+        await this.flush();
+      }
+    }
   }
 }
 

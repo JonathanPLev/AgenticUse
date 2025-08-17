@@ -104,7 +104,18 @@ async function handleConsentBanners(page) {
     const consentOMaticActive = await isConsentOMaticActive(page);
 
     if (consentOMaticActive.active) {
-      console.log('✅ Consent-O-Matic extension appears to be active');
+      console.log(`✅ Consent-O-Matic detected (${consentOMaticActive.indicatorCount}/${consentOMaticActive.totalChecks} indicators)`);
+      
+      // Wait longer for Consent-O-Matic to work, then check if banners remain
+      await randomDelay(3000, 5000);
+      const remainingBanners = await checkForRemainingConsentBanners(page);
+      
+      if (remainingBanners.length > 0) {
+        console.log(`⚠️  Consent-O-Matic detected but ${remainingBanners.length} banners still visible, applying manual handling...`);
+        await manualConsentHandling(page);
+      } else {
+        console.log('✅ Consent-O-Matic successfully handled consent banners');
+      }
     } else {
       console.log('⚠️  Consent-O-Matic not detected, trying manual consent handling...');
       await manualConsentHandling(page);

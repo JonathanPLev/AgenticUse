@@ -47,6 +47,48 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
 const { normalizeUrl, DataQueue, scrollWithPauses, captureFrameDOM, captureAllFrames} = require('./helpers.js')
 
+// Function to check if a crawl is complete based on folder size and file contents
+function isCrawlComplete(urlDir) {
+  if (!fs.existsSync(urlDir)) {
+    return false;
+  }
+  
+  try {
+    const files = fs.readdirSync(urlDir);
+    let totalSize = 0;
+    let hasRequiredFiles = false;
+    
+    // Check for required files and calculate total size
+    const requiredFiles = ['network.log', 'dom.log', 'console.log'];
+    let foundRequiredFiles = 0;
+    
+    for (const file of files) {
+      const filePath = path.join(urlDir, file);
+      const stats = fs.statSync(filePath);
+      totalSize += stats.size;
+      
+      if (requiredFiles.includes(file) && stats.size > 100) { // At least 100 bytes
+        foundRequiredFiles++;
+      }
+    }
+    
+    // Consider crawl complete if:
+    // 1. Total folder size > 5KB (indicates some data was collected)
+    // 2. At least 2 of the 3 required files exist with content
+    // 3. No error.log exists, or if it exists, it's small (< 1KB)
+    const errorLogPath = path.join(urlDir, 'error.log');
+    const hasLargeErrorLog = fs.existsSync(errorLogPath) && fs.statSync(errorLogPath).size > 1024;
+    
+    hasRequiredFiles = foundRequiredFiles >= 2;
+    const hasMinimumData = totalSize > 5120; // 5KB
+    
+    return hasRequiredFiles && hasMinimumData && !hasLargeErrorLog;
+  } catch (err) {
+    console.warn(`Error checking crawl completeness for ${urlDir}: ${err.message}`);
+    return false;
+  }
+}
+
 const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
 if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
   throw new Error(`manifest.json not found in ${extensionDir}`);
@@ -73,46 +115,104 @@ const allQueues = [];
       // Process each URL with a fresh browser instance
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        console.log(`\n🌐 Processing site ${i + 1}/${urls.length}: ${url}`);
+        
+        // Create a filesystem-safe slug from the URL
+        const slug = url
+          .replace(/(^\w+:|^)\//, '')      // strip protocol
+          .replace(/[^a-zA-Z0-9_-]/g, '_');  // replace unsafe chars
+        const urlDir = path.join(OUTPUT_DIR, slug);
+        
+        // Skip if this URL has already been processed and crawl is complete
+        if (fs.existsSync(urlDir) && isCrawlComplete(urlDir)) {
+          console.log(`\n⏩ Skipping already processed site ${i + 1}/${urls.length}: ${url}`);
+          continue;
+        }
+        
+        // Check if this is a re-crawl of an incomplete site
+        const isReCrawl = fs.existsSync(urlDir);
+        if (isReCrawl) {
+          console.log(`\n🔄 Re-crawling incomplete site ${i + 1}/${urls.length}: ${url}`);
+          // Archive the incomplete crawl data
+          const archiveDir = path.join(urlDir, `incomplete_${Date.now()}`);
+          fs.mkdirSync(archiveDir, { recursive: true });
+          const files = fs.readdirSync(urlDir);
+          for (const file of files) {
+            if (!file.startsWith('incomplete_')) {
+              try {
+                fs.renameSync(path.join(urlDir, file), path.join(archiveDir, file));
+              } catch (err) {
+                console.warn(`⚠️  Could not archive ${file}: ${err.message}`);
+              }
+            }
+          }
+        } else {
+          console.log(`\n🌐 Processing site ${i + 1}/${urls.length}: ${url}`);
+        }
         
         // Create fresh browser for each site
         let browser = null;
         try {
           browser = await puppeteer.launch({
             headless: false,   // extensions only work in headful mode
+            protocolTimeout: 60000, // Increased from 30000 to 60000 (1 minute)
             ignoreDefaultArgs: [
               '--disable-extensions',
               '--disable-component-extensions-with-background-pages',
-              '--disable-blink-features=AutomationControlled,MojoJS'
+              '--disable-blink-features=AutomationControlled,MojoJS',
+              '--disable-iframe-blocking'  // Add this to prevent iframe blocking
             ],
             args: [
               `--disable-extensions-except=${extensionDir}`,
               `--load-extension=${extensionDir}`,
               '--no-sandbox',
-              '--disable-setuid-sandbox'
+              '--disable-setuid-sandbox',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-zygote',
+              '--disable-gpu',
+              '--disable-features=IsolateOrigins,site-per-process'  // Add this for better iframe handling
             ],
-            userDataDir: path.join(__dirname, `profile_${i}_${Date.now()}`)
+            userDataDir: path.join(__dirname, `profile_${i}_${Date.now()}`),
+            dumpio: true  // Enable verbose logging
           });
 
           // Create site-specific queues array for this iteration
           const siteQueues = [];
           
-          await processSingleSite(browser, url, siteQueues);
-          
-        } catch (err) {
-          console.error(`❌ Failed to process site ${url}:`, err.message);
-        } finally {
-          // Always close browser after each site
-          if (browser) {
-            try {
-              const pages = await browser.pages();
-              await Promise.all(pages.map(page => page.close().catch(() => {})));
-              await browser.close();
-              console.log(`🔒 Browser closed for ${url}`);
-            } catch (e) {
-              console.warn(`⚠️  Could not close browser cleanly: ${e.message}`);
+          try {
+            await processSingleSite(browser, url, siteQueues);
+          } catch (err) {
+            const errorLog = `❌ [${new Date().toISOString()}] Failed to process site ${url}: ${err.message}\n`;
+            console.error(errorLog);
+            // Log error to a central error log file
+            fs.appendFileSync(path.join(OUTPUT_DIR, 'crawl_errors.log'), errorLog);
+            // Log the full error stack to the URL-specific log directory
+            if (url) {
+              const slug = url.replace(/(^\w+:|^)\//, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+              const urlDir = path.join(OUTPUT_DIR, slug);
+              if (!fs.existsSync(urlDir)) {
+                fs.mkdirSync(urlDir, { recursive: true });
+              }
+              fs.appendFileSync(
+                path.join(urlDir, 'error.log'),
+                `[${new Date().toISOString()}] ${err.stack || err.message}\n\n`
+              );
+            }
+          } finally {
+            // Always close browser after each site
+            if (browser) {
+              try {
+                const pages = await browser.pages();
+                await Promise.all(pages.map(page => page.close().catch(() => {})));
+                await browser.close();
+                console.log(`🔒 Browser closed for ${url}`);
+              } catch (e) {
+                console.warn(`⚠️  Could not close browser cleanly: ${e.message}`);
+              }
             }
           }
+        } catch (err) {
+          console.error(`❌ Failed to process site ${url}:`, err.message);
         }
       }
       
@@ -173,28 +273,54 @@ async function processSingleSite(browser, url, siteQueues) {
     instrumentationResult = await enhancedInstrumentPage(page, {
       networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue
     });
-        // Enhanced bot mitigation: randomize UA & viewport + advanced techniques
-        await page.setUserAgent(
-          userAgents[Math.floor(Math.random() * userAgents.length)]
-        );
-        await page.setViewport(viewports[Math.floor(Math.random() * viewports.length)]);
-        await setRealisticHeaders(page);
-        
-        // Apply advanced bot mitigation before any page interaction
-        await applyBotMitigation(page, {
-          enableMouseMovement: true,
-          enableRandomScrolling: true,
-          enableWebGLFingerprinting: true,
-          enableCanvasFingerprinting: true,
-          enableTimingAttacks: true,
-          logMitigation: true
-        });
+    
+    // Set basic page properties (but don't run full bot mitigation yet)
+    await page.setUserAgent(
+      userAgents[Math.floor(Math.random() * userAgents.length)]
+    );
+    await page.setViewport(viewports[Math.floor(Math.random() * viewports.length)]);
+    await setRealisticHeaders(page);
         
     detectionQueue.enqueue({ event: 'crawlStarted', timestamp: Date.now() }); // to ensure detection log always exists
     
     // Create CDP session with proper error handling
     try {
       client = await page.target().createCDPSession();
+      
+      // Add error handling for page interactions
+      page.on('pageerror', error => {
+        console.error(`Page error on ${page.url()}: ${error.message}`);
+        consoleQueue.enqueue({
+          type: 'pageError',
+          url: page.url(),
+          error: error.message,
+          stack: error.stack,
+          timestamp: Date.now()
+        });
+      });
+
+      page.on('error', error => {
+        console.error(`Browser error on ${page.url()}: ${error.message}`);
+        consoleQueue.enqueue({
+          type: 'browserError',
+          url: page.url(),
+          error: error.message,
+          stack: error.stack,
+          timestamp: Date.now()
+        });
+      });
+
+      page.on('frameattached', frame => {
+        frame.on('error', error => {
+          console.warn(`Iframe error on ${frame.url()}: ${error.message}`);
+          consoleQueue.enqueue({
+            type: 'iframeError',
+            url: frame.url(),
+            error: error.message,
+            timestamp: Date.now()
+          });
+        });
+      });
       
       // deal with bad certs
       await client.send('Security.enable');
@@ -248,14 +374,49 @@ async function processSingleSite(browser, url, siteQueues) {
         for (const sub of subdomains) {
           for (const prot of protocols) {
             const candidate = prot + sub + host + pathPart;
+            
+            // Validate URL before attempting navigation
+            let validUrl;
             try {
-              // listen for network requests of chatbot providers
-              // try to navigate
-              await page.goto(candidate, { waitUntil: 'domcontentloaded', timeout: 10000 });
-              // got a 2xx/3xx — we’ll assume success
-              workingUrl = candidate;
-              console.log(` → navigation succeeded on ${candidate}`);
-              break;
+              validUrl = new URL(candidate.startsWith('http') ? candidate : 'https://' + candidate);
+              if (!validUrl.hostname || validUrl.hostname.includes('..') || validUrl.hostname.startsWith('.')) {
+                console.warn(` ✗ Invalid URL format: ${candidate}`);
+                continue;
+              }
+            } catch (urlError) {
+              console.warn(` ✗ Invalid URL: ${candidate} - ${urlError.message}`);
+              continue;
+            }
+            
+            try {
+              // Set page timeouts
+              await page.setDefaultNavigationTimeout(30000); // 30 seconds
+              await page.setDefaultTimeout(15000); // 15 seconds for other operations
+              
+              // Navigate with error handling
+              try {
+                await page.goto(validUrl.href, { 
+                  waitUntil: ['domcontentloaded', 'networkidle0'], 
+                  timeout: 30000 
+                });
+                workingUrl = validUrl.href;
+                console.log(` → navigation succeeded on ${validUrl.href}`);
+                break;
+              } catch (navError) {
+                console.warn(` ✗ Navigation to ${validUrl.href} failed: ${navError.message}`);
+                // If navigation fails, try with just domcontentloaded
+                try {
+                  await page.goto(validUrl.href, { 
+                    waitUntil: 'domcontentloaded', 
+                    timeout: 30000 
+                  });
+                  workingUrl = validUrl.href;
+                  console.log(` → recovery navigation succeeded on ${validUrl.href}`);
+                  break;
+                } catch (reloadError) {
+                  console.warn(` ✗ Recovery navigation failed: ${reloadError.message}`);
+                }
+              }
             } catch (err) {
               console.warn(` ✗ ${candidate} failed: ${err.message}`);
             }
@@ -264,21 +425,32 @@ async function processSingleSite(browser, url, siteQueues) {
         }
 
         if (!workingUrl) {
-          console.warn(`‼ No working variant for ${url}, skipping.`);
+          const errorMsg = `No working variant for ${url}, skipping.`;
+          console.warn(`‼ ${errorMsg}`);
+          
+          // Ensure error logging even for skipped sites
+          const errorLog = `❌ [${new Date().toISOString()}] ${errorMsg}\n`;
+          fs.appendFileSync(path.join(OUTPUT_DIR, 'crawl_errors.log'), errorLog);
+          fs.appendFileSync(path.join(urlDir, 'error.log'), `[${new Date().toISOString()}] ${errorMsg}\n\n`);
+          
           if (page && !page.isClosed()) {
             await page.close();
           }
           return; // Skip this site and return from function
         }
-
+        
         normalizedURL = workingUrl
 
         client.on('Debugger.paused', async evt => {
             debugQueue.enqueue({ event: 'paused', details: evt });
             try {
-              await client.send('Debugger.resume');
+              // Only try to resume if we're actually paused
+              if (evt.reason) {
+                await client.send('Debugger.resume');
+              }
             } catch (err) {
-              console.error('Failed to resume debugger:', err);
+              // Silently ignore resume errors - they're usually harmless
+              console.warn(`⚠️  Debugger resume warning: ${err.message}`);
             }
           });
 
@@ -339,6 +511,29 @@ async function processSingleSite(browser, url, siteQueues) {
         // Navigate and scroll
         try {
           await page.goto(normalizedURL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+          
+          // Apply advanced bot mitigation AFTER page loads (so it can interact with actual elements)
+          console.log('🛡️  Applying post-navigation bot mitigation...');
+          try {
+            // Add timeout to prevent hanging
+            await Promise.race([
+              applyBotMitigation(page, {
+                enableMouseMovement: true,
+                enableRandomScrolling: true,
+                enableWebGLFingerprinting: true,
+                enableCanvasFingerprinting: true,
+                enableTimingAttacks: true,
+                logMitigation: true
+              }),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Bot mitigation timeout')), 15000)
+              )
+            ]);
+            console.log('✅ Bot mitigation completed successfully');
+          } catch (error) {
+            console.warn(`⚠️  Bot mitigation failed or timed out: ${error.message}`);
+            // Continue anyway - bot mitigation is not critical
+          }
           
           // Apply consent banner handling with Consent-O-Matic
           await handleConsentBanners(page);
@@ -443,9 +638,11 @@ async function processSingleSite(browser, url, siteQueues) {
       }
     }
     
-    // Flush site-specific queues
+    // Flush site-specific queues and wait for all writes to complete
     try {
       await Promise.all(siteQueues.map(q => q.flush()));
+      // Wait for all pending writes to complete
+      await Promise.all(siteQueues.map(q => q.waitForFlush ? q.waitForFlush() : Promise.resolve()));
     } catch (e) {
       console.warn(`⚠️  Could not flush queues: ${e.message}`);
     }

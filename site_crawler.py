@@ -6,7 +6,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
 # ─── Configuration ─────────────────────────────────────────────
-INPUT_CSV   = "test_URLs.csv"                       
+INPUT_CSV   = "test_URLs.csv"
 OUT_DIR     = Path("logs_selenium_stealth")
 OUT_DIR.mkdir(exist_ok=True)
 MAX_SCROLLS = 100                      # max scroll iterations
@@ -118,7 +118,7 @@ def crawl(url: str, idx: int):
     opts.add_argument("--disable-infobars")
     opts.add_argument("--incognito")
 
-    opts.set_capability("goog:loggingPrefs", 
+    opts.set_capability("goog:loggingPrefs",
     {
         "performance": "ALL",
         "browser": "ALL"
@@ -175,7 +175,7 @@ if __name__ == "__main__":
         reader = csv.reader(f)
         for idx, row in enumerate(reader, start=1):
             # adjust here if your CSV has multiple columns (e.g. index,name)
-            url = row[1]  
+            url = row[1]
             try:
                 print(f"[{idx:04d}] crawling {url} …")
                 crawl(url, idx)
