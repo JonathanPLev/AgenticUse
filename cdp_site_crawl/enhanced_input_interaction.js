@@ -573,13 +573,28 @@ async function findElementOnPage(page, elementInfo) {
     const strategies = [
       () => elementInfo.id ? page.$(`#${elementInfo.id}`) : null,
       () => elementInfo.name ? page.$(`[name="${elementInfo.name}"]`) : null,
-      () => page.$(`${elementInfo.tagName}[type="${elementInfo.type}"]`),
-      () => page.$(`${elementInfo.selector}:nth-of-type(${elementInfo.index + 1})`)
+      () => elementInfo.tagName && elementInfo.type ? page.$(`${elementInfo.tagName}[type="${elementInfo.type}"]`) : null,
+      () => {
+        // Only use nth-of-type if we have a valid selector and index
+        if (elementInfo.selector && 
+            typeof elementInfo.index === 'number' && 
+            !isNaN(elementInfo.index) && 
+            elementInfo.index >= 0) {
+          return page.$(`${elementInfo.selector}:nth-of-type(${elementInfo.index + 1})`);
+        }
+        return null;
+      },
+      () => elementInfo.selector ? page.$(elementInfo.selector) : null
     ];
 
     for (const strategy of strategies) {
-      const element = await strategy();
-      if (element) return element;
+      try {
+        const element = await strategy();
+        if (element) return element;
+      } catch (strategyError) {
+        // Skip invalid strategies silently
+        continue;
+      }
     }
 
     return null;
