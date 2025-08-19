@@ -1,0 +1,113 @@
+🗑️  Closing unwanted initial tab: about:blank
+🗑️  Closing unwanted initial tab: chrome-extension://didhhjgifkidaedgpnnacnbimmcpnjpf/options.html
+https://mail.ru
+🧭 Attempting navigation with strategy: networkidle0
+⚠️  Navigation strategy networkidle0 failed: Navigation timeout of 60000 ms exceeded
+🧭 Attempting navigation with strategy: domcontentloaded
+🧭 Navigation result: https://mail.ru/
+📄 Page title: Mail: Почта, Облако, Календарь, Заметки, Покупки — сервисы для работы и жизни
+📝 Content check: {
+  bodyLength: [33m344761[39m,
+  hasVisibleElements: [33mtrue[39m,
+  hasImages: [33mtrue[39m,
+  hasLinks: [33mtrue[39m,
+  hasInputs: [33mtrue[39m,
+  totalElements: [33m14845[39m
+}
+✅ Navigation succeeded with domcontentloaded
+   → Final URL: https://mail.ru/
+   → Title: Mail: Почта, Облако, Календарь, Заметки, Покупки — сервисы для работы и жизни
+   → Body length: 344761
+   → Elements: 14845
+🍪 Checking for consent banners and Consent-O-Matic extension...
+✅ Consent-O-Matic detected (3/5 indicators)
+✅ Consent-O-Matic successfully handled consent banners
+🛡️  Applying enhanced bot mitigation...
+✅ Bot mitigation applied successfully
+Target URL: https://mail.ru/, ready: true
+✅ Network.enable enabled successfully
+✅ Page.enable enabled successfully
+✅ DOM.enable enabled successfully
+✅ Runtime.enable enabled successfully
+✅ Debugger.enable enabled successfully
+✅ Enhanced debugger configuration applied for function name recording
+🔍 Running generic detection (regex-based patterns + iframe support)...
+🔍 Starting generic detection (regex-based patterns)...
+⏳ Waiting for dynamic content to load...
+🔄 Dynamic request detected: Fetch to ad.mail.ru
+🔄 Dynamic request detected: XHR to an.yandex.ru
+🔄 Dynamic request detected: XHR to an.yandex.ru
+🔄 Dynamic request detected: XHR to yandex.ru
+🔄 Dynamic request detected: XHR to mail.ru
+🔄 Dynamic request detected: XHR to an.yandex.ru
+🔄 Dynamic request detected: XHR to yandex.ru
+🔄 Dynamic request detected: XHR to mail.ru
+🔄 Dynamic request detected: XHR to yandex.ru
+🔄 Dynamic request detected: Fetch to dzen.ru
+🔄 Dynamic request detected: XHR to an.yandex.ru
+🔄 Dynamic request detected: XHR to yandex.ru
+🔄 Dynamic request detected: XHR to mail.ru
+🔄 Dynamic request detected: XHR to an.yandex.ru
+📝 Found 1 search elements using generic patterns
+💬 Found 68 chatbot indicators using generic patterns
+🔍 Checking 11 frames for chatbots (including iframes)
+  📄 Checking frame: https://mail.ru/
+  📄 Checking frame: https://yandex.ru/portal/searchframe/desktop?theme=system&button=&mstatid=515000000&dark_theme=0&image_search=1
+🔄 Dynamic request detected: Fetch to dzen.ru
+  📄 Checking frame: https://r.mradx.net/h5/00/4E823B93/D07518B25A.html?data=AAC__AGBqkR6-FDZ27FXX6eL1umNtXJshmJMLx81jxuCFA2bSpFpLbInADVy1SgQ40ljTYGKd6ba8Qi7NpwkWcbu_M7Kpbmeibv3WYFagxofJ5Kc9w1NxalyHpwyouIijJvdcKCGZ-SL9mKwfkyybgV88vvHjydwIcCCbHtpPIA5bYZwrkXfZi03AAAAM4gdpEDXpL04svQAzlIbr-jS7mEfFvjZORtXl6J3F2D8EyG0honp42q_S1lpz8jTcFRPbeICLMUvjqI7BLlTVg
+  📄 Checking frame: https://ad.mail.ru/dist/vkAuth.html
+  📄 Checking frame: https://ad.mail.ru/dist/vkAuth.html
+✅ Found 2 chatbot indicators across all frames
+🖼️  Found 101 chatbot indicators in all frames
+🔍 Generic detection results:
+   📝 Search elements: 1
+   💬 Chatbots (main frame): 68
+   🖼️  Chatbots (all frames): 101
+📊 Instrumentation Status:
+   🌐 Network requests: 48
+   🔄 Dynamic content: Detected
+   🌍 Meaningful domains: 0
+🔍 Starting enhanced input interaction for: https://mail.ru/
+🛡️  Applying enhanced bot mitigation...
+🔄 Dynamic request detected: XHR to mail.ru
+🔄 Dynamic request detected: XHR to mail.ru
+🔄 Dynamic request detected: XHR to an.yandex.ru
+🔄 Dynamic request detected: XHR to mail.ru
+🔄 Dynamic request detected: Fetch to dzen.ru
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+🔄 Dynamic request detected: Fetch to mc.yandex.com
+✅ Bot mitigation applied successfully
+🔍 Starting generic detection (regex-based patterns)...
+📝 Found 0 search elements using generic patterns
+❌ Generic detection failed: el.className.split is not a function
+pptr:evaluate;detectChatbotsGeneric%20(%2Fhome%2Fjlevitsky%2FDownloads%2Fcrawl%2FAgenticUse%2Fcdp_site_crawl%2Fgeneric_detection.js%3A67%3A21):54:64
+Array.forEach (<anonymous>)
+🔍 Generic detection results:
+   📝 Search elements: 0
+   💬 Chatbots (main frame): 0
+   🖼️  Chatbots (all frames): 0
+📝 Found 0 input elements using traditional selectors
+📊 Total elements to interact with: 0
+📊 Interaction Summary: 0 interactions, 0 network requests
+📊 Completed 0 interactions with 0 network requests
+✅ Crawled mail.ru successfully
+   - Network requests: 0
+   - Input interactions: 0
+   - Elements found: 0
+   - Generic search elements: 0
+   - Generic chatbots: 0
+   - Iframe chatbots: 0
+📝 Will process 1 form(s)
+📊 Dynamic content activity detected - Network requests: 71, Domains: 0
+🔄 Dynamic request detected: Fetch to portal.mail.ru
+🔄 Dynamic request detected: XHR to xray.mail.ru
+📊 Dynamic content activity detected - Network requests: 74, Domains: 0
+❌ Error crawling mail.ru: Navigation timeout of 30000 ms exceeded
+💾 Ensuring data is saved for mail.ru despite error...
+💾 Successfully saved partial data for mail.ru

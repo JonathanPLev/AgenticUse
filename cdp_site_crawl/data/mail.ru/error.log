@@ -1,0 +1,12 @@
+[2025-08-17T23:22:21.192Z] TimeoutError: Navigation timeout of 30000 ms exceeded
+    at new Deferred (/home/jlevitsky/Downloads/crawl/AgenticUse/node_modules/puppeteer-core/lib/cjs/puppeteer/util/Deferred.js:60:34)
+    at Deferred.create (/home/jlevitsky/Downloads/crawl/AgenticUse/node_modules/puppeteer-core/lib/cjs/puppeteer/util/Deferred.js:21:16)
+    at new LifecycleWatcher (/home/jlevitsky/Downloads/crawl/AgenticUse/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/LifecycleWatcher.js:69:60)
+    at CdpFrame.goto (/home/jlevitsky/Downloads/crawl/AgenticUse/node_modules/puppeteer-core/lib/cjs/puppeteer/cdp/Frame.js:149:29)
+    at CdpFrame.<anonymous> (/home/jlevitsky/Downloads/crawl/AgenticUse/node_modules/puppeteer-core/lib/cjs/puppeteer/util/decorators.js:109:27)
+    at CdpPage.goto (/home/jlevitsky/Downloads/crawl/AgenticUse/node_modules/puppeteer-core/lib/cjs/puppeteer/api/Page.js:574:43)
+    at openInstrumentedTab (/home/jlevitsky/Downloads/crawl/AgenticUse/cdp_site_crawl/input_interaction.cjs:50:19)
+    at async interactWithAllForms (/home/jlevitsky/Downloads/crawl/AgenticUse/cdp_site_crawl/input_interaction.cjs:149:12)
+    at async processSingleSite (/home/jlevitsky/Downloads/crawl/AgenticUse/cdp_site_crawl/cdp_site_crawler_fixed.cjs:494:23)
+    at async CsvParser.<anonymous> (/home/jlevitsky/Downloads/crawl/AgenticUse/cdp_site_crawl/cdp_site_crawler_fixed.cjs:192:13)
+
