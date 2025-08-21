@@ -9,10 +9,16 @@ const path = require('path');
 const csv = require('csv-parser');
 const { balancedAIInstrumentPage } = require('./balanced_ai_instrumentation');
 const { DataQueue, normalizeUrl } = require('./helpers');
+const { handleConsentBanners, waitForPageReady } = require('./consent_handler_fixed');
+const { setRealisticHeaders } = require('./bot_mitigation_final_fix');
 
-// Configure stealth plugin
+// FIXED: Enhanced stealth plugin configuration to prevent protocol issues
 const stealthPlugin = StealthPlugin();
+// Remove problematic evasions that can cause target closure and webdriver conflicts
 stealthPlugin.enabledEvasions.delete('user-agent-override');
+stealthPlugin.enabledEvasions.delete('webgl.vendor');
+stealthPlugin.enabledEvasions.delete('webgl.renderer');
+stealthPlugin.enabledEvasions.delete('navigator.webdriver'); // FIXED: Remove to prevent conflicts
 puppeteer.use(stealthPlugin);
 
 const INPUT_CSV = '../top-1m.csv'; // Can also use 'test_URLs.csv' for testing
@@ -29,33 +35,20 @@ const CONFIG = {
   browserArgs: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-accelerated-2d-canvas',
-    '--no-first-run',
-    '--no-zygote',
-    '--disable-gpu',
+    '--disable-blink-features=AutomationControlled',
     '--disable-web-security',
     '--disable-features=VizDisplayCompositor',
     '--disable-backgrounding-occluded-windows',
     '--disable-renderer-backgrounding',
-    '--disable-background-timer-throttling',
-    '--disable-client-side-phishing-detection',
-    '--disable-component-update',
-    '--disable-default-apps',
-    '--disable-domain-reliability',
-    '--disable-extensions',
-    '--disable-features=TranslateUI',
-    '--disable-hang-monitor',
+    '--disable-field-trial-config',
     '--disable-ipc-flooding-protection',
+    // FIXED: Enhanced iframe and navigation handling
+    '--disable-iframe-blocking',
+    '--disable-features=IsolateOrigins,site-per-process',
+    '--disable-site-isolation-trials',
+    // FIXED: Better tab management
     '--disable-popup-blocking',
-    '--disable-prompt-on-repost',
-    '--disable-sync',
-    '--metrics-recording-only',
-    '--no-default-browser-check',
-    '--safebrowsing-disable-auto-update',
-    '--enable-automation',
-    '--password-store=basic',
-    '--use-mock-keychain'
+    '--disable-default-apps'
   ]
 };
 
@@ -130,19 +123,134 @@ async function processBalancedSite(browser, url, outputDir) {
     // Create page with optimized settings
     page = await browser.newPage();
     
-    // Set viewport and user agent
+    // Set realistic headers and user agent
+    await setRealisticHeaders(page);
+    
+    // Set viewport to common desktop size
     await page.setViewport({ width: 1366, height: 768 });
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+    
+    // FIXED: Enhanced consent handling with proper tab management
+    console.log('🍪 Handling consent banners with Consent-O-Matic...');
+    page = await handleConsentBanners(page, browser);
+    console.log('✅ Consent handling completed');
     
     // Set up balanced instrumentation
+    console.log('🔧 Setting up balanced instrumentation...');
     instrumentation = await balancedAIInstrumentPage(page, queues);
+    console.log('✅ Balanced instrumentation setup complete');
     
-    // Navigate with timeout
+    // Enable CDP domains with retry logic
+    console.log('🔌 Enabling CDP domains...');
+    if (instrumentation && instrumentation.client) {
+      try {
+        await instrumentation.client.send('Network.enable');
+        console.log('✅ Network.enable enabled successfully');
+      } catch (e) {
+        console.warn('⚠️  Network.enable failed:', e.message);
+      }
+      
+      try {
+        await instrumentation.client.send('Runtime.enable');
+        console.log('✅ Runtime.enable enabled successfully');
+      } catch (e) {
+        console.warn('⚠️  Runtime.enable failed:', e.message);
+      }
+      
+      try {
+        await instrumentation.client.send('DOM.enable');
+        console.log('✅ DOM.enable enabled successfully');
+      } catch (e) {
+        console.warn('⚠️  DOM.enable failed:', e.message);
+      }
+    }
+    
+    // FIXED: Enhanced URL processing and navigation
+    let workingUrl = url.startsWith('http') ? url : `https://${url}`;
+    let normalizedURL = normalizeUrl(workingUrl);
+    
     console.log(`📡 Navigating to ${url}`);
-    await page.goto(url, { 
-      waitUntil: 'networkidle0', 
-      timeout: CONFIG.timeout 
-    });
+    console.log(`🔗 Working URL: ${workingUrl}`);
+    console.log(`🎯 Normalized URL: ${normalizedURL}`);
+    
+    // Validate URL before navigation
+    if (!normalizedURL || normalizedURL === 'about:blank' || !normalizedURL.startsWith('http')) {
+      throw new Error(`Invalid URL for navigation: ${normalizedURL}`);
+    }
+    
+    console.log(`🚀 Attempting to navigate to: ${normalizedURL}`);
+    
+    // FIXED: Multiple navigation strategies with enhanced redirect detection
+    let navigationSuccess = false;
+    const navigationStrategies = [
+      { waitUntil: 'networkidle0', timeout: 60000 },
+      { waitUntil: 'domcontentloaded', timeout: 45000 },
+      { waitUntil: 'load', timeout: 20000 },
+      { waitUntil: 'networkidle2', timeout: 25000 }
+    ];
+    
+    for (const strategy of navigationStrategies) {
+      try {
+        console.log(`🧭 Attempting navigation with strategy: ${strategy.waitUntil}`);
+        
+        const response = await page.goto(normalizedURL, strategy);
+        
+        // Wait for redirects and dynamic content to load
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Enhanced content detection
+        const finalUrl = page.url();
+        const title = await page.title().catch(() => '');
+        
+        const contentCheck = await page.evaluate(() => {
+          const bodyText = document.body?.textContent?.trim() || '';
+          const hasVisibleElements = document.querySelectorAll('div, p, span, h1, h2, h3, h4, h5, h6').length > 0;
+          const hasImages = document.querySelectorAll('img').length > 0;
+          const hasLinks = document.querySelectorAll('a').length > 0;
+          const totalElements = document.querySelectorAll('*').length;
+          
+          return {
+            bodyLength: bodyText.length,
+            hasVisibleElements,
+            hasImages,
+            hasLinks,
+            totalElements
+          };
+        });
+        
+        console.log(`🧭 Navigation result: ${finalUrl}`);
+        console.log(`📄 Page title: ${title}`);
+        console.log(`📝 Content check:`, contentCheck);
+        
+        // Enhanced success criteria
+        const hasContent = contentCheck.bodyLength > 50 || 
+                         contentCheck.hasVisibleElements || 
+                         contentCheck.hasImages || 
+                         contentCheck.hasLinks || 
+                         contentCheck.totalElements > 10;
+        
+        const isValidUrl = finalUrl && 
+                         finalUrl !== 'about:blank' && 
+                         !finalUrl.includes('chrome-error://') &&
+                         !finalUrl.includes('data:text/html,chromewebdata');
+        
+        if (isValidUrl && (title || hasContent)) {
+          console.log(`✅ Navigation succeeded with ${strategy.waitUntil}`);
+          navigationSuccess = true;
+          workingUrl = finalUrl; // Update working URL to final redirected URL
+          break;
+        } else {
+          console.warn(`⚠️  Navigation to ${finalUrl} resulted in insufficient content`);
+        }
+        
+      } catch (navError) {
+        console.warn(`⚠️  Navigation strategy ${strategy.waitUntil} failed: ${navError.message}`);
+        continue;
+      }
+    }
+    
+    if (!navigationSuccess) {
+      throw new Error(`All navigation strategies failed for ${url} - site may be inaccessible or require special handling`);
+    }
     
     // Wait for initial page load
     await new Promise(resolve => setTimeout(resolve, 5000));
@@ -537,11 +645,26 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
           console.log(`\n🆕 Processing new site ${i + 1}/${urls.length}: ${url}`);
         }
         
-        // Launch browser for this URL
+        // Launch browser for this URL with Consent-O-Matic extension
+        const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
+        const browserArgs = [...CONFIG.browserArgs];
+        
+        // Add extension support if Consent-O-Matic is available
+        if (fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
+          browserArgs.push(`--disable-extensions-except=${extensionDir}`);
+          browserArgs.push(`--load-extension=${extensionDir}`);
+          console.log('🍪 Consent-O-Matic extension loaded');
+        }
+        
         const browser = await puppeteer.launch({
-          headless: CONFIG.headless,
-          args: CONFIG.browserArgs,
+          headless: false, // Extensions require headful mode
+          args: browserArgs,
           protocolTimeout: CONFIG.protocolTimeout,
+          ignoreDefaultArgs: [
+            '--enable-blink-features=IdleDetection',
+            '--enable-automation'
+          ],
+          userDataDir: path.join(__dirname, `profile_${i}_${Date.now()}`),
           dumpio: false
         });
         
