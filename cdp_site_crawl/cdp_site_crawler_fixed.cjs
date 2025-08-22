@@ -22,7 +22,7 @@ const { performGenericDetection } = require('./generic_detection_fixed');
 const { applyBotMitigation, setRealisticHeaders } = require('./bot_mitigation_final_fix');
 const { handleConsentBanners, waitForPageReady } = require('./consent_handler_fixed');
 const { instrumentPage } = require('./instrumentation');
-const { enhancedInstrumentPage } = require('./enhanced_instrumentation_production_fix');
+const { enhancedInstrumentPage } = require('./enhanced_instrumentation_optimized');
 
 // FIXED: Enhanced stealth plugin configuration to prevent protocol issues
 const stealthPlugin = StealthPlugin();
@@ -33,7 +33,7 @@ stealthPlugin.enabledEvasions.delete('webgl.renderer');
 stealthPlugin.enabledEvasions.delete('navigator.webdriver'); // FIXED: Remove to prevent conflicts
 puppeteer.use(stealthPlugin);
 
-const INPUT_CSV = '../tranco_3N2WL.csv'; // Can also use 'test_URLs.csv' for testing
+const INPUT_CSV = '../top-1m.csv'; // Can also use 'test_URLs.csv' for testing
 const OUTPUT_DIR = 'data';
 let FLUSH_INTERVAL_MS = 5000;           // adjustable flush interval
 let workingUrl = null;
@@ -146,7 +146,8 @@ const allQueues = [];
             }
           }
         } else {
-          console.log(`\n🌐 Processing site ${i + 1}/${urls.length}: ${url}`);
+          console.log(`\n🆕 Processing new site ${i + 1}/${urls.length}: ${url}`);
+      console.log(`🔍 Starting balanced crawl of ${url}`);
         }
         
         // Create fresh browser for each site
@@ -268,7 +269,9 @@ async function processSingleSite(browser, url, siteQueues) {
 
   try {
     // FIXED: Enhanced page creation with better error handling
+    console.log('📄 Creating new page...');
     page = await browser.newPage();
+    console.log('✅ New page created successfully');
     
     // FIXED: Close any unwanted tabs immediately
     const allPages = await browser.pages();
@@ -310,6 +313,10 @@ async function processSingleSite(browser, url, siteQueues) {
     workingUrl = url.startsWith('http') ? url : `https://${url}`;
     normalizedURL = normalizeUrl(workingUrl);
     
+    console.log(`📡 Navigating to ${url}`);
+    console.log(`🔗 Working URL: ${workingUrl}`);
+    console.log(`🎯 Normalized URL: ${normalizedURL}`);
+    
     console.log(normalizedURL);
 
     try {
@@ -325,6 +332,13 @@ async function processSingleSite(browser, url, siteQueues) {
       for (const strategy of navigationStrategies) {
         try {
           console.log(`🧭 Attempting navigation with strategy: ${strategy.waitUntil}`);
+          
+          // Validate URL before navigation
+          if (!normalizedURL || normalizedURL === 'about:blank' || !normalizedURL.startsWith('http')) {
+            throw new Error(`Invalid URL for navigation: ${normalizedURL}`);
+          }
+          
+          console.log(`🚀 Attempting to navigate to: ${normalizedURL}`);
           
           // Navigate with response monitoring
           const response = await page.goto(normalizedURL, strategy);
@@ -401,7 +415,9 @@ async function processSingleSite(browser, url, siteQueues) {
     }
 
     // FIXED: Enhanced consent handling with proper tab management
+    console.log('🍪 Handling consent banners with Consent-O-Matic...');
     page = await handleConsentBanners(page, browser);
+    console.log('✅ Consent handling completed');
     
     // Ensure we're still on the right page after consent handling
     if (page.isClosed()) {
@@ -422,6 +438,7 @@ async function processSingleSite(browser, url, siteQueues) {
     });
 
     // FIXED: Enhanced instrumentation with better error handling
+    console.log('🔧 Setting up enhanced instrumentation...');
     instrumentationResult = await enhancedInstrumentPage(page, {
       networkQueue,
       responseQueue,
@@ -430,8 +447,32 @@ async function processSingleSite(browser, url, siteQueues) {
       domQueue,
       interactionQueue,
     });
+    console.log('✅ Enhanced instrumentation setup complete');
 
     client = instrumentationResult.client;
+    
+    // Enable CDP domains with retry logic
+    console.log('🔌 Enabling CDP domains...');
+    try {
+      await client.send('Network.enable');
+      console.log('✅ Network.enable enabled successfully');
+    } catch (e) {
+      console.warn('⚠️  Network.enable failed:', e.message);
+    }
+    
+    try {
+      await client.send('Runtime.enable');
+      console.log('✅ Runtime.enable enabled successfully');
+    } catch (e) {
+      console.warn('⚠️  Runtime.enable failed:', e.message);
+    }
+    
+    try {
+      await client.send('DOM.enable');
+      console.log('✅ DOM.enable enabled successfully');
+    } catch (e) {
+      console.warn('⚠️  DOM.enable failed:', e.message);
+    }
 
     // PRODUCTION FIX: Enhanced generic detection with dynamic content support
     console.log('🔍 Running generic detection (regex-based patterns + iframe support)...');
@@ -497,7 +538,7 @@ async function processSingleSite(browser, url, siteQueues) {
       openUrlMode: 'original',
       finalFreshOriginal: true,
       closeSubmissionTabs: true,
-      bodyPreviewLimit: 1_000_000,
+      bodyPreviewLimit: 50_000, // Reduced from 1MB to 50KB
     });
 
   } catch (err) {

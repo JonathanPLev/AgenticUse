@@ -141,20 +141,37 @@ async function scrollWithPauses(page,
 }
 
 /**
- * Capture outerHTML for *every* frame in the page.
+ * OPTIMIZED: Capture essential DOM content with size limits
  *
  * @param {import('puppeteer').Page} page
  * @param {DataQueue} domQueue
  */
 async function captureFrameDOM(page, domQueue) {
+  const MAX_HTML_SIZE = 100000; // 100KB limit per frame
+  const STATIC_EXTENSIONS = new Set(['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'css', 'woff', 'woff2', 'ttf', 'mp4', 'webm', 'pdf']);
+  
   for (const frame of page.frames()) {
     try {
-      // Puppeteer’s frame.content() returns the full serialized HTML
+      const frameUrl = frame.url();
+      
+      // Skip static files and tracking frames
+      if (!frameUrl || frameUrl === 'about:blank' || frameUrl.startsWith('data:') || frameUrl.startsWith('blob:')) {
+        continue;
+      }
+      
+      // Keep all frames including tracking/analytics - no filtering
+      
+      // Get HTML content with size limit
       const html = await frame.content();
+      const truncatedHtml = html.length > MAX_HTML_SIZE ? 
+        html.substring(0, MAX_HTML_SIZE) + '...[TRUNCATED]' : html;
+      
       domQueue.enqueue({
-        frameId: frame._id /* Puppeteer’s internal frame id */,
-        url:     frame.url(),
-        html
+        frameId: frame._id,
+        url: frameUrl,
+        html: truncatedHtml,
+        originalSize: html.length,
+        truncated: html.length > MAX_HTML_SIZE
       });
     } catch (e) {
       console.warn(`DOM capture failed for frame ${frame.url()}: ${e.message}`);
