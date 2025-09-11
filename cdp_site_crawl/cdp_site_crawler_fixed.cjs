@@ -89,7 +89,7 @@ function isCrawlComplete(urlDir) {
 
 const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
 if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
-  throw new Error(`manifest.json not found in ${extensionDir}`);
+  console.warn(`⚠️  Consent-O-Matic extension not found at ${extensionDir}, continuing without extension`);
 }
 
 const allQueues = [];
@@ -302,12 +302,12 @@ async function processSingleSite(browser, url, siteQueues) {
     const networkQueue = new DataQueue(path.join(urlDir, 'network.log'), FLUSH_INTERVAL_MS);
     const responseQueue = new DataQueue(path.join(urlDir, 'responses.log'), FLUSH_INTERVAL_MS);
     const consoleQueue = new DataQueue(path.join(urlDir, 'console.log'), FLUSH_INTERVAL_MS);
-    const debugQueue = new DataQueue(path.join(urlDir, 'debug.log'), FLUSH_INTERVAL_MS);
     const domQueue = new DataQueue(path.join(urlDir, 'dom.log'), FLUSH_INTERVAL_MS);
     const interactionQueue = new DataQueue(path.join(urlDir, 'interactions.log'), FLUSH_INTERVAL_MS);
+    const functionTrackingQueue = new DataQueue(path.join(urlDir, 'function_tracking.log'), FLUSH_INTERVAL_MS);
 
     // Add queues to site-specific array for cleanup
-    siteQueues.push(networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue);
+    siteQueues.push(networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue);
 
     // FINAL FIX: Enhanced navigation with comprehensive redirect handling for sites like x.com
     workingUrl = url.startsWith('http') ? url : `https://${url}`;
@@ -443,9 +443,9 @@ async function processSingleSite(browser, url, siteQueues) {
       networkQueue,
       responseQueue,
       consoleQueue,
-      debugQueue,
       domQueue,
       interactionQueue,
+      functionTrackingQueue,
     });
     console.log('✅ Enhanced instrumentation setup complete');
 
@@ -505,7 +505,7 @@ async function processSingleSite(browser, url, siteQueues) {
     // Enhanced input interaction with generic detection, fresh tabs and detailed logging
     const interactionSummary = await enhancedInputInteraction(page, workingUrl, {
       instrumentPage,
-      queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue },
+      queues: { networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue },
       logFile: path.join(urlDir, 'interaction_log.json'),
       maxInteractionsPerPage: 20,
       interactionTimeout: 45000,
@@ -523,6 +523,21 @@ async function processSingleSite(browser, url, siteQueues) {
     });
     
     console.log(`📊 Completed ${interactionSummary.totalInteractions} interactions with ${interactionSummary.totalNetworkRequests} network requests`);
+    // Generate comprehensive function tracking report
+    console.log('📊 Generating function tracking report...');
+    const functionTrackingReport = await instrumentationResult.getFunctionTrackingReport();
+    
+    if (functionTrackingReport) {
+      // Save detailed function tracking report
+      try {
+        const reportPath = path.join(urlDir, 'function_tracking_report.json');
+        await fs.promises.writeFile(reportPath, JSON.stringify(functionTrackingReport, null, 2));
+        console.log(`💾 Function tracking report saved to: ${reportPath}`);
+      } catch (reportError) {
+        console.warn(`⚠️  Could not save function tracking report: ${reportError.message}`);
+      }
+    }
+    
     console.log(`✅ Crawled ${url} successfully`);
     console.log(`   - Network requests: ${interactionSummary.totalNetworkRequests}`);
     console.log(`   - Input interactions: ${interactionSummary.totalInteractions}`);
@@ -530,15 +545,20 @@ async function processSingleSite(browser, url, siteQueues) {
     console.log(`   - Generic search elements: ${interactionSummary.genericSearchElements}`);
     console.log(`   - Generic chatbots: ${interactionSummary.genericChatbots}`);
     console.log(`   - Iframe chatbots: ${interactionSummary.iframeChatbots}`);
+    if (functionTrackingReport && functionTrackingReport.summary) {
+      console.log(`   - Function calls tracked: ${functionTrackingReport.summary.totalFunctionCalls}`);
+      console.log(`   - Event listeners tracked: ${functionTrackingReport.summary.totalEventListeners}`);
+      console.log(`   - Functions monitored: ${functionTrackingReport.summary.trackedFunctionCount}`);
+    }
     
     // Keep original form interaction as fallback/additional coverage
     const finalPage = await interactWithAllForms(page, workingUrl, {
       instrumentPage,
-      queues: { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue },
+      queues: { networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue },
       openUrlMode: 'original',
       finalFreshOriginal: true,
       closeSubmissionTabs: true,
-      bodyPreviewLimit: 50_000, // Reduced from 1MB to 50KB
+      bodyPreviewLimit: null, // Removed size restrictions
     });
 
   } catch (err) {

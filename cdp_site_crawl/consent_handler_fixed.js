@@ -1,7 +1,7 @@
 // consent_handler_fixed.js
 // Enhanced consent banner handling with proper tab management and Consent-O-Matic integration
 
-const { randomDelay } = require('./bot_mitigation');
+const { applyBotMitigation, randomDelay } = require('./bot_mitigation_final_fix');
 
 /**
  * Enhanced Consent-O-Matic detection with multiple indicators

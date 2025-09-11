@@ -1,8 +1,8 @@
 // enhanced_input_interaction.js
 // Comprehensive input interaction with fresh browser tabs and detailed logging
 
-const { applyBotMitigation, randomDelay } = require('./bot_mitigation');
-const { performGenericDetection, detectChatbotsInAllFrames } = require('./generic_detection');
+const { applyBotMitigation, randomDelay } = require('./bot_mitigation_final_fix');
+const { performGenericDetection, detectChatbotsInAllFrames } = require('./generic_detection_fixed');
 const fs = require('fs');
 const path = require('path');
 

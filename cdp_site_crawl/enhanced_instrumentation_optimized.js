@@ -1,14 +1,15 @@
 // enhanced_instrumentation_optimized.js
-// OPTIMIZED VERSION: Reduced log sizes while maintaining AI detection capabilities
+// ENHANCED VERSION: Full data collection with function tracking capabilities
 
 const { DataQueue } = require('./helpers');
+const { FunctionTracker } = require('./function_tracker');
 
-// Configuration for log size optimization
+// Configuration for full data collection (removed size limits as requested)
 const LOG_LIMITS = {
-  MAX_RESPONSE_BODY: 10000,      // 10KB max response body
-  MAX_HTML_CONTENT: 50000,       // 50KB max HTML content
-  MAX_SCRIPT_SOURCE: 5000,       // 5KB max script source
-  MAX_CONSOLE_ARGS: 1000,        // 1KB max console arguments
+  MAX_RESPONSE_BODY: null,       // No limit on response body
+  MAX_HTML_CONTENT: null,        // No limit on HTML content
+  MAX_SCRIPT_SOURCE: null,       // No limit on script source
+  MAX_CONSOLE_ARGS: null,        // No limit on console arguments
   TRUNCATE_SUFFIX: '...[TRUNCATED]'
 };
 
@@ -86,8 +87,8 @@ function extractEssentialMetadata(content, url) {
 }
 
 function truncateContent(content, maxLength) {
-  if (!content || content.length <= maxLength) return content;
-  return content.substring(0, maxLength) + LOG_LIMITS.TRUNCATE_SUFFIX;
+  // Return full content without truncation as requested
+  return content;
 }
 
 function isStaticFile(url) {
@@ -102,40 +103,26 @@ function isStaticFile(url) {
 }
 
 function shouldTruncateContent(content, maxSize) {
-  if (!content || content.length <= maxSize) return { content, truncated: false };
-  
-  // Extract essential metadata before truncating
+  // Return full content without truncation as requested
   const metadata = extractEssentialMetadata(content);
-  
-  // If we have important metadata, include it even if over size limit
-  const hasImportantData = metadata.functionNames.length > 0 || 
-                          metadata.apiCalls.length > 0 || 
-                          metadata.scriptNames.length > 0;
-  
-  if (hasImportantData) {
-    // Keep more content if it contains important data
-    const extendedLimit = Math.min(maxSize * 2, content.length);
-    return {
-      content: content.substring(0, extendedLimit) + LOG_LIMITS.TRUNCATE_SUFFIX,
-      truncated: content.length > extendedLimit,
-      metadata
-    };
-  }
-  
   return {
-    content: content.substring(0, maxSize) + LOG_LIMITS.TRUNCATE_SUFFIX,
-    truncated: true,
+    content: content,
+    truncated: false,
     metadata
   };
 }
 
 async function enhancedInstrumentPage(page, queues) {
-  const { networkQueue, responseQueue, consoleQueue, debugQueue, domQueue, interactionQueue } = queues;
+  const { networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue } = queues;
   
   const frameTracker = new Map();
   const processedFrames = new Set();
   let networkRequestCount = 0;
   let dynamicContentDetected = false;
+  
+  // Initialize function tracking
+  const functionTracker = new FunctionTracker(page, functionTrackingQueue, networkQueue);
+  await functionTracker.initialize();
 
   // Enhanced CDP session creation with retry logic
   let client;
@@ -257,7 +244,7 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
-  // OPTIMIZED: Network monitoring with static file filtering
+  // Enhanced network monitoring with function correlation
   client.on('Network.requestWillBeSent', (params) => {
     try {
       networkRequestCount++;
@@ -276,16 +263,36 @@ async function enhancedInstrumentPage(page, queues) {
         dynamicContentDetected = true;
       }
       
-      // Log essential request data
-      networkQueue?.enqueue?.({
-        event: 'requestWillBeSent',
-        requestId,
-        url,
-        method: request.method,
-        headers: request.headers,
-        type,
-        isDynamic: isDynamicRequest,
-        timestamp: Date.now()
+      // Get function call correlation from page context
+      page.evaluate((reqId) => {
+        // Check if this request was triggered by a tracked function
+        const functionCallId = window.__functionTracker?.functionToRequestMap?.get(reqId);
+        return functionCallId || null;
+      }, requestId).then(functionCallId => {
+        // Log request data with function correlation
+        networkQueue?.enqueue?.({
+          event: 'requestWillBeSent',
+          requestId,
+          url,
+          method: request.method,
+          headers: request.headers,
+          type,
+          isDynamic: isDynamicRequest,
+          triggeredByFunction: functionCallId, // Link to function call
+          timestamp: Date.now()
+        });
+      }).catch(() => {
+        // Fallback without function correlation
+        networkQueue?.enqueue?.({
+          event: 'requestWillBeSent',
+          requestId,
+          url,
+          method: request.method,
+          headers: request.headers,
+          type,
+          isDynamic: isDynamicRequest,
+          timestamp: Date.now()
+        });
       });
     } catch (error) {
       console.warn(`⚠️  Error handling network request: ${error.message}`);
@@ -303,21 +310,47 @@ async function enhancedInstrumentPage(page, queues) {
         return;
       }
       
-      // Get response body with smart truncation
+      // Get full response body without truncation
       let responseBody = '';
       let bodyMetadata = null;
       let bodyTruncated = false;
       try {
         const bodyResponse = await client.send('Network.getResponseBody', { requestId });
         if (bodyResponse && bodyResponse.body) {
-          const result = shouldTruncateContent(bodyResponse.body, LOG_LIMITS.MAX_RESPONSE_BODY);
-          responseBody = result.content;
-          bodyMetadata = result.metadata;
-          bodyTruncated = result.truncated;
+          responseBody = bodyResponse.body;
+          bodyMetadata = extractEssentialMetadata(bodyResponse.body);
+          bodyTruncated = false;
         }
       } catch (bodyError) {
         // Response body not available
       }
+      
+      // Get function call correlation and link with response
+      page.evaluate((reqId) => {
+        const functionCallId = window.__functionTracker?.functionToRequestMap?.get(reqId);
+        const requestInfo = window.__functionTracker?.activeNetworkRequests?.get(reqId);
+        return { functionCallId, requestInfo };
+      }, requestId).then(correlation => {
+        // Link network request with function tracking
+        functionTracker.linkWithNetworkRequests({
+          requestId,
+          url,
+          method: response.headers?.method || 'GET',
+          status: response.status,
+          timestamp: Date.now(),
+          triggeredByFunction: correlation.functionCallId,
+          clientSideRequestInfo: correlation.requestInfo
+        });
+      }).catch(() => {
+        // Fallback without correlation
+        functionTracker.linkWithNetworkRequests({
+          requestId,
+          url,
+          method: response.headers?.method || 'GET',
+          status: response.status,
+          timestamp: Date.now()
+        });
+      });
       
       // Log essential response data
       responseQueue?.enqueue?.({
@@ -339,13 +372,24 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
-  // OPTIMIZED: Script parsing with size limits
+  // Enhanced script parsing with full source capture
   client.on('Debugger.scriptParsed', async (params) => {
     try {
       const { scriptId, url, startLine, startColumn, endLine, endColumn } = params;
       
-      // Log all scripts - let AI detector decide relevance later
-      debugQueue?.enqueue?.({
+      // Get full script source
+      let scriptSource = '';
+      try {
+        const sourceResponse = await client.send('Debugger.getScriptSource', { scriptId });
+        if (sourceResponse && sourceResponse.scriptSource) {
+          scriptSource = sourceResponse.scriptSource;
+        }
+      } catch (sourceError) {
+        // Script source not available
+      }
+      
+      // Log script with full source
+      functionTrackingQueue?.enqueue?.({
         event: 'scriptParsed',
         scriptId,
         url,
@@ -353,6 +397,8 @@ async function enhancedInstrumentPage(page, queues) {
         startColumn,
         endLine,
         endColumn,
+        scriptSource,
+        sourceLength: scriptSource.length,
         timestamp: Date.now()
       });
     } catch (error) {
@@ -360,7 +406,7 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
-  // OPTIMIZED: Function name capture with essential data only
+  // Function name capture for tracking (moved to function tracker)
   client.on('Debugger.paused', async (params) => {
     try {
       const { callFrames, reason } = params;
@@ -373,8 +419,9 @@ async function enhancedInstrumentPage(page, queues) {
         columnNumber: frame.location?.columnNumber || 0
       }));
       
-      debugQueue?.enqueue?.({
-        event: 'paused',
+      // Log to function tracking queue instead of debug queue
+      functionTrackingQueue?.enqueue?.({
+        event: 'debuggerPaused',
         reason,
         functionNames,
         timestamp: Date.now()
@@ -391,23 +438,23 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
-  // OPTIMIZED: Console logging with argument size limits
+  // Enhanced console logging with full arguments
   client.on('Runtime.consoleAPICalled', (params) => {
     try {
       const { type, args, stackTrace } = params;
       
-      // Truncate console arguments
-      const truncatedArgs = args.map(arg => ({
+      // Keep full console arguments without truncation
+      const fullArgs = args.map(arg => ({
         type: arg.type,
-        value: truncateContent(JSON.stringify(arg.value || ''), LOG_LIMITS.MAX_CONSOLE_ARGS)
+        value: JSON.stringify(arg.value || '', null, 2)
       }));
       
       consoleQueue?.enqueue?.({
         event: 'consoleAPICalled',
         type,
-        args: truncatedArgs,
+        args: fullArgs,
         stackTrace: stackTrace ? {
-          callFrames: stackTrace.callFrames.slice(0, 5) // Limit stack trace depth
+          callFrames: stackTrace.callFrames // Keep full stack trace
         } : undefined,
         timestamp: Date.now()
       });
@@ -446,6 +493,7 @@ async function enhancedInstrumentPage(page, queues) {
       frameTracker.clear();
       processedFrames.clear();
       meaningfulDomains.clear();
+      functionTracker.cleanup();
     } catch (error) {
       console.warn(`⚠️  Error during instrumentation cleanup: ${error.message}`);
     }
@@ -454,11 +502,13 @@ async function enhancedInstrumentPage(page, queues) {
   return {
     client,
     cleanup,
+    functionTracker,
     getFrameTracker: () => frameTracker,
     getProcessedFrames: () => processedFrames,
     getNetworkRequestCount: () => networkRequestCount,
     getDynamicContentStatus: () => dynamicContentDetected,
-    getMeaningfulDomains: () => Array.from(meaningfulDomains)
+    getMeaningfulDomains: () => Array.from(meaningfulDomains),
+    getFunctionTrackingReport: () => functionTracker.getTrackingReport()
   };
 }
 
@@ -476,20 +526,21 @@ async function processFrameContentOptimized(client, frameId, frameUrl, domQueue,
         const { outerHTML } = await client.send('DOM.getOuterHTML', { nodeId: root.nodeId });
         
         if (outerHTML && outerHTML.length > 100) {
-          // Truncate HTML content
-          const truncatedHTML = truncateContent(outerHTML, LOG_LIMITS.MAX_HTML_CONTENT);
+          // Keep full HTML content without truncation
+          const fullHTML = outerHTML;
           
           domQueue?.enqueue?.({
             event: 'frameContent',
             frameId,
             url: frameUrl,
-            html: truncatedHTML,
+            html: fullHTML,
             originalSize: outerHTML.length,
+            truncated: false,
             timestamp: Date.now()
           });
 
           // Analyze for chatbot indicators
-          const chatbotIndicators = analyzeChatbotContentOptimized(truncatedHTML, frameUrl);
+          const chatbotIndicators = analyzeChatbotContentOptimized(fullHTML, frameUrl);
           if (chatbotIndicators.length > 0) {
             interactionQueue?.enqueue?.({
               event: 'chatbotDetectedInFrame',
