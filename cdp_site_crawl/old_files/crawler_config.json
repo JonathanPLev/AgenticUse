@@ -1,0 +1,61 @@
+{
+  "optimized": {
+    "description": "Lightweight crawler focused on AI detection - reduces log sizes by 90%+",
+    "maxResponseBodySize": 5000,
+    "maxPostDataSize": 1000,
+    "maxConsoleMessageLength": 500,
+    "maxNetworkEntries": 1000,
+    "maxResponseEntries": 500,
+    "maxConsoleEntries": 200,
+    "maxInteractionEntries": 100,
+    "captureFullDOM": false,
+    "captureAllRequests": false,
+    "captureOnlyAIRelevant": true,
+    "filterWebsiteErrors": true,
+    "enableFrameProcessing": false,
+    "estimatedLogSize": "5-20MB per site"
+  },
+  
+  "full": {
+    "description": "Complete crawler with full data capture - original version",
+    "maxResponseBodySize": 1000000,
+    "maxPostDataSize": -1,
+    "maxConsoleMessageLength": -1,
+    "maxNetworkEntries": -1,
+    "maxResponseEntries": -1,
+    "maxConsoleEntries": -1,
+    "maxInteractionEntries": -1,
+    "captureFullDOM": true,
+    "captureAllRequests": true,
+    "captureOnlyAIRelevant": false,
+    "filterWebsiteErrors": false,
+    "enableFrameProcessing": true,
+    "estimatedLogSize": "100-400MB per site"
+  },
+  
+  "aiPatterns": {
+    "domains": [
+      "openai.com", "api.openai.com", "anthropic.com", "claude.ai",
+      "cohere.ai", "huggingface.co", "replicate.com", "stability.ai",
+      "midjourney.com", "runwayml.com", "elevenlabs.io", "assemblyai.com",
+      "deepgram.com", "speechmatics.com", "rev.ai", "otter.ai",
+      "jasper.ai", "copy.ai", "writesonic.com", "grammarly.com",
+      "notion.so/ai", "github.com/copilot", "cursor.sh", "codeium.com"
+    ],
+    "urlPatterns": [
+      "/v1/chat/completions", "/v1/completions", "/generate",
+      "/api/chat", "/api/completion", "/api/generate",
+      "/anthropic", "/claude", "/gpt", "/openai",
+      "/ai/chat", "/chatbot", "/assistant", "/copilot"
+    ],
+    "libraries": [
+      "openai", "@anthropic-ai/sdk", "langchain", "llamaindex",
+      "transformers", "huggingface", "cohere-ai", "replicate"
+    ],
+    "chatbotPatterns": [
+      "intercom", "zendesk", "drift", "crisp", "freshchat",
+      "livechat", "tidio", "hubspot.*chat", "messenger",
+      "chatlio", "olark", "tawk.to", "widget.*chat"
+    ]
+  }
+}

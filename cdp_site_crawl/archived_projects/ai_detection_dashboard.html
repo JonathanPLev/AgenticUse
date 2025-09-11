@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Activity Detection Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .dashboard {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1rem;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .stat-label {
+            color: #666;
+            font-size: 1rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .ai-detected { color: #e74c3c; }
+        .no-ai { color: #27ae60; }
+        .confidence { color: #3498db; }
+        .categories { color: #9b59b6; }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 40px;
+        }
+        
+        .section h2 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+        }
+        
+        .charts-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 30px;
+            margin-bottom: 30px;
+        }
+        
+        .chart-container {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+        }
+        
+        .sites-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .site-card {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+            border-left: 5px solid #ddd;
+            transition: all 0.3s ease;
+        }
+        
+        .site-card.ai-detected {
+            border-left-color: #e74c3c;
+        }
+        
+        .site-card.no-ai {
+            border-left-color: #27ae60;
+        }
+        
+        .site-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        .confidence-bar {
+            width: 100%;
+            height: 8px;
+            background: #ecf0f1;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .confidence-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #27ae60 0%, #f39c12 50%, #e74c3c 100%);
+            transition: width 0.5s ease;
+        }
+        
+        .categories-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 10px;
+        }
+        
+        .category-tag {
+            background: #3498db;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+        }
+        
+        .evidence-count {
+            color: #666;
+            font-size: 0.9rem;
+            margin-top: 5px;
+        }
+        
+        @media (max-width: 768px) {
+            .charts-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .header h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="header">
+            <h1>🤖 AI Activity Detection Dashboard</h1>
+            <p>Real-time monitoring of AI usage across crawled websites</p>
+        </div>
+        
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-number ai-detected" id="aiSitesCount">10</div>
+                <div class="stat-label">Sites with AI</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number no-ai" id="noAiSitesCount">6</div>
+                <div class="stat-label">Sites without AI</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number confidence" id="avgConfidence">52%</div>
+                <div class="stat-label">Avg Confidence</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number categories" id="totalCategories">6</div>
+                <div class="stat-label">AI Categories</div>
+            </div>
+        </div>
+        
+        <div class="content">
+            <div class="section">
+                <h2>📊 Detection Overview</h2>
+                <div class="charts-grid">
+                    <div class="chart-container">
+                        <canvas id="detectionChart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <canvas id="categoryChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>🌐 Site Analysis Results</h2>
+                <div class="sites-list" id="sitesList">
+                    <!-- Sites will be populated by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Sample data - in production, this would come from your detection results
+        const detectionResults = [
+            { site: 'mail.ru', aiDetected: true, confidence: 58, categories: ['chatbot', 'text_generation', 'api_integration', 'image_generation'], evidence: 29 },
+            { site: 'www_drift_com', aiDetected: true, confidence: 63, categories: ['chatbot', 'text_generation'], evidence: 1 },
+            { site: 'cnn_com', aiDetected: true, confidence: 56, categories: ['text_generation'], evidence: 2 },
+            { site: 'www_hubspot_com', aiDetected: true, confidence: 56, categories: ['chatbot', 'text_generation'], evidence: 2 },
+            { site: 'dotasks_in_index_php', aiDetected: true, confidence: 56, categories: ['text_generation', 'chatbot'], evidence: 1 },
+            { site: 'fctest_fssai_gov_in_standard-product', aiDetected: true, confidence: 49, categories: ['chatbot', 'text_generation'], evidence: 1 },
+            { site: 'www_zendesk_com', aiDetected: true, confidence: 49, categories: ['text_generation'], evidence: 1 },
+            { site: 'www_licdn_com', aiDetected: true, confidence: 45, categories: ['api_integration'], evidence: 23 },
+            { site: 'www_yes4youth_co_za_4-business_hsLang_en', aiDetected: true, confidence: 45, categories: ['chatbot', 'text_generation', 'speech_processing', 'embedding'], evidence: 2 },
+            { site: 'openai_com', aiDetected: true, confidence: 42, categories: ['text_generation'], evidence: 1 },
+            { site: 'www_intercom_com', aiDetected: false, confidence: 0, categories: [], evidence: 0 },
+            { site: 'amazon-adsystem_com', aiDetected: false, confidence: 0, categories: [], evidence: 0 },
+            { site: 'google_com', aiDetected: false, confidence: 0, categories: [], evidence: 0 },
+            { site: 'invalid-url-test_com', aiDetected: false, confidence: 0, categories: [], evidence: 0 },
+            { site: 'nonexistent-domain-12345_com', aiDetected: false, confidence: 0, categories: [], evidence: 0 },
+            { site: 'test-incomplete_com', aiDetected: false, confidence: 0, categories: [], evidence: 0 }
+        ];
+
+        // Update statistics
+        const aiSites = detectionResults.filter(site => site.aiDetected);
+        const noAiSites = detectionResults.filter(site => !site.aiDetected);
+        const avgConfidence = Math.round(aiSites.reduce((sum, site) => sum + site.confidence, 0) / aiSites.length);
+        const allCategories = [...new Set(aiSites.flatMap(site => site.categories))];
+
+        document.getElementById('aiSitesCount').textContent = aiSites.length;
+        document.getElementById('noAiSitesCount').textContent = noAiSites.length;
+        document.getElementById('avgConfidence').textContent = avgConfidence + '%';
+        document.getElementById('totalCategories').textContent = allCategories.length;
+
+        // Detection Overview Chart
+        const detectionCtx = document.getElementById('detectionChart').getContext('2d');
+        new Chart(detectionCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['AI Detected', 'No AI Detected'],
+                datasets: [{
+                    data: [aiSites.length, noAiSites.length],
+                    backgroundColor: ['#e74c3c', '#27ae60'],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'AI Detection Results'
+                    },
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+
+        // Category Distribution Chart
+        const categoryData = {};
+        aiSites.forEach(site => {
+            site.categories.forEach(category => {
+                categoryData[category] = (categoryData[category] || 0) + 1;
+            });
+        });
+
+        const categoryCtx = document.getElementById('categoryChart').getContext('2d');
+        new Chart(categoryCtx, {
+            type: 'bar',
+            data: {
+                labels: Object.keys(categoryData),
+                datasets: [{
+                    label: 'Sites',
+                    data: Object.values(categoryData),
+                    backgroundColor: '#3498db',
+                    borderRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: 'AI Categories Distribution'
+                    }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1
+                        }
+                    }
+                }
+            }
+        });
+
+        // Populate sites list
+        const sitesList = document.getElementById('sitesList');
+        detectionResults.forEach(site => {
+            const siteCard = document.createElement('div');
+            siteCard.className = `site-card ${site.aiDetected ? 'ai-detected' : 'no-ai'}`;
+            
+            const categoriesHtml = site.categories.map(cat => 
+                `<span class="category-tag">${cat.replace('_', ' ')}</span>`
+            ).join('');
+            
+            siteCard.innerHTML = `
+                <div class="site-name">${site.site.replace(/_/g, '.')}</div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" style="width: ${site.confidence}%"></div>
+                </div>
+                <div>Confidence: ${site.confidence}%</div>
+                <div class="evidence-count">Evidence: ${site.evidence} items</div>
+                <div class="categories-tags">${categoriesHtml}</div>
+            `;
+            
+            sitesList.appendChild(siteCard);
+        });
+
+        // Auto-refresh functionality (in production)
+        function refreshData() {
+            // In production, fetch new data from your API
+            console.log('Refreshing detection data...');
+        }
+
+        // Refresh every 30 seconds
+        setInterval(refreshData, 30000);
+    </script>
+</body>
+</html>

@@ -13,23 +13,29 @@ crawl_venv/
 ssh*.
 Consent_O_Matic
 cdp_site_crawl/tmp_profile
+cdp_site_crawl/data/*
+cdp_site_crawl/datasets/*
+cdp_site_crawl/profiles_and_temp/*
+cdp_site_crawl/comprehensive_test_results/*
 
 # CDP Site Crawler - Data directories
-cdp_site_crawl/data/
+# cdp_site_crawl/data/
 cdp_site_crawl/ai_tools_test_results/
 cdp_site_crawl/comprehensive_test_results/
 cdp_site_crawl/core_test_results/
 cdp_site_crawl/generic_detection_test_results/
 cdp_site_crawl/openai_diagnostic_results/
 cdp_site_crawl/production_test_results/
+cdp_site_crawl/generic_detection_test_results
+cdp_site_crawl/test_files/
 
 # CDP Site Crawler - User data and browser profiles
 cdp_site_crawl/user_data_*/
 cdp_site_crawl/profile_with_consents/
 
 # CDP Site Crawler - Log files and results
-cdp_site_crawl/*.log
-cdp_site_crawl/*.log.*
+# cdp_site_crawl/*.log
+# cdp_site_crawl/*.log.*
 cdp_site_crawl/fix_validation_report.json
 
 # CDP Site Crawler - CSV files with sensitive data (keep test_urls.csv for reference)
@@ -47,3 +53,4 @@ cdp_site_crawl/data/google_com/
 cdp_site_crawl/profile_*/
 
 .DS_Store
+cdp_site_crawl/data/
