@@ -152,32 +152,36 @@ const allQueues = [];
         // Create fresh browser for each site
         let browser = null;
         try {
+          // Create profile directory path
+          const profilePath = path.join(__dirname, `profile_${i}_${Date.now()}`);
+          
           browser = await puppeteer.launch({
             headless: false,   // extensions only work in headful mode
             protocolTimeout: 180000, // Increased to 3 minutes for problematic sites
             ignoreDefaultArgs: [
-              '--enable-blink-features=IdleDetection',
-              '--enable-automation'
+              '--disable-extensions',
+              '--disable-extensions-file-access-check',
+              '--disable-component-extensions-with-background-pages'
             ],
             args: [
               '--no-sandbox',
               '--disable-setuid-sandbox',
-              '--disable-blink-features=AutomationControlled',
+              '--disable-dev-shm-usage',
+              '--disable-accelerated-2d-canvas',
+              '--no-first-run',
+              '--no-zygote',
+              '--single-process',
+              '--disable-gpu',
               '--disable-web-security',
               '--disable-features=VizDisplayCompositor',
               '--disable-backgrounding-occluded-windows',
               '--disable-renderer-backgrounding',
-              '--disable-field-trial-config',
-              '--disable-ipc-flooding-protection',
-              '--disable-iframe-blocking',
-              '--disable-features=IsolateOrigins,site-per-process',
-              '--disable-site-isolation-trials',
               `--disable-extensions-except=${extensionDir}`,
               `--load-extension=${extensionDir}`,
               '--disable-popup-blocking',
               '--disable-default-apps'
             ],
-            userDataDir: path.join(__dirname, `profile_${i}_${Date.now()}`),
+            userDataDir: profilePath,
             dumpio: false  // Disable verbose logging to reduce noise
           });
 
@@ -220,6 +224,22 @@ const allQueues = [];
               } catch (e) {
                 console.warn(`Could not close browser cleanly: ${e.message}`);
               }
+            }
+            
+            // Profile cleanup logic: only keep profiles for sites 1, 1001, 2001, etc.
+            // Delete profile directory unless it's a milestone (every 1000th site starting from 1)
+            const shouldKeepProfile = (i + 1) === 1 || (i + 1) % 1000 === 1;
+            
+            if (!shouldKeepProfile && profilePath && fs.existsSync(profilePath)) {
+              try {
+                // Recursively delete the profile directory
+                fs.rmSync(profilePath, { recursive: true, force: true });
+                console.log(`🗑️  Deleted temporary profile: profile_${i}_*`);
+              } catch (cleanupErr) {
+                console.warn(`⚠️  Could not delete profile ${profilePath}: ${cleanupErr.message}`);
+              }
+            } else if (shouldKeepProfile) {
+              console.log(`💾 Keeping milestone profile for site ${i + 1}: ${profilePath}`);
             }
           }
         } catch (err) {
