@@ -295,7 +295,10 @@ async function performGenericDetection(page, options = {}) {
       
       // Scroll to trigger lazy loading
       await page.evaluate(() => {
-        window.scrollTo(0, document.body.scrollHeight / 2);
+        const body = document.body || document.documentElement;
+        if (body && body.scrollHeight) {
+          window.scrollTo(0, body.scrollHeight / 2);
+        }
       });
       await new Promise(resolve => setTimeout(resolve, 1000));
       

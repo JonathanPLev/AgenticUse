@@ -6,7 +6,7 @@
 // 4. Better frame navigation handling
 // 5. Improved function name recording in debug logs
 // 6. Comprehensive error handling and recovery
-
+// TODO: fix consent o matic handling
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');

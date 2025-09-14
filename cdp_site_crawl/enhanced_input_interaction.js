@@ -40,30 +40,44 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     }
 
     // Use generic detection to find search elements and chatbots (Comments 8, 9, 10)
-    const genericDetection = await performGenericDetection(page);
-    console.log(`🔍 Generic detection results:`);
-    console.log(`   📝 Search elements: ${genericDetection.searchElements.length}`);
-    console.log(`   💬 Chatbots (main frame): ${genericDetection.chatbots.length}`);
-    console.log(`   🖼️  Chatbots (all frames): ${genericDetection.iframeChatbots.length}`);
+    let genericDetection;
+    try {
+      genericDetection = await performGenericDetection(page);
+    } catch (error) {
+      console.warn(`⚠️ Generic detection failed: ${error.message}`);
+      genericDetection = null;
+    }
+    
+    // Provide safe defaults if generic detection failed
+    const safeGenericDetection = {
+      searchElements: genericDetection?.searchElements || [],
+      chatbots: genericDetection?.chatbots || [],
+      iframeChatbots: genericDetection?.iframeChatbots || []
+    };
+    
+    console.log(`Generic detection results:`);
+    console.log(`Search elements: ${safeGenericDetection.searchElements.length}`);
+    console.log(`Chatbots (main frame): ${safeGenericDetection.chatbots.length}`);
+    console.log(`Chatbots (all frames): ${safeGenericDetection.iframeChatbots.length}`);
     
     // Find all interactive input elements (traditional method)
     const inputElements = await findAllInputElements(page);
-    console.log(`📝 Found ${inputElements.length} input elements using traditional selectors`);
+    console.log(`Found ${inputElements.length} input elements using traditional selectors`);
     
     // Combine generic detection results with traditional input elements
     const allDetectedElements = [
       ...inputElements,
-      ...genericDetection.searchElements.map(el => ({...el, detectionSource: 'generic_search'})),
-      ...genericDetection.chatbots.filter(cb => cb.selector).map(cb => ({...cb, detectionSource: 'generic_chatbot'})),
-      ...genericDetection.iframeChatbots.filter(cb => cb.selector).map(cb => ({...cb, detectionSource: 'iframe_chatbot'}))
+      ...safeGenericDetection.searchElements.map(el => ({...el, detectionSource: 'generic_search'})),
+      ...safeGenericDetection.chatbots.filter(cb => cb.selector).map(cb => ({...cb, detectionSource: 'generic_chatbot'})),
+      ...safeGenericDetection.iframeChatbots.filter(cb => cb.selector).map(cb => ({...cb, detectionSource: 'iframe_chatbot'}))
     ];
     
-    console.log(`📊 Total elements to interact with: ${allDetectedElements.length}`);
+    console.log(`Total elements to interact with: ${allDetectedElements.length}`);
 
     let interactionCount = 0;
     for (const element of allDetectedElements) {
       if (maxInteractionsPerPage !== Infinity && interactionCount >= maxInteractionsPerPage) {
-        console.log(`⚠️  Reached max interactions limit (${maxInteractionsPerPage})`);
+        console.log(`Reached max interactions limit (${maxInteractionsPerPage})`);
         break;
       }
 
@@ -189,13 +203,13 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
       url: startUrl,
       totalElementsFound: allDetectedElements.length,
       traditionalElements: inputElements.length,
-      genericSearchElements: genericDetection.searchElements.length,
-      genericChatbots: genericDetection.chatbots.length,
-      iframeChatbots: genericDetection.iframeChatbots.length,
+      genericSearchElements: safeGenericDetection.searchElements.length,
+      genericChatbots: safeGenericDetection.chatbots.length,
+      iframeChatbots: safeGenericDetection.iframeChatbots.length,
       totalInteractions: interactionCount,
       totalNetworkRequests: networkRequests.length,
       interactions: interactions,
-      genericDetectionResults: genericDetection
+      genericDetectionResults: safeGenericDetection
     };
 
     console.log(`📊 Interaction Summary: ${interactionCount} interactions, ${networkRequests.length} network requests`);
