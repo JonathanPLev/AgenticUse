@@ -18,19 +18,18 @@ const interactWithAllForms = require("./input_interaction.cjs")
 const { enhancedInputInteraction } = require('./enhanced_input_interaction');
 const { performGenericDetection } = require('./generic_detection_fixed');
 
-// PRODUCTION FIXES: Import production fixed modules
 const { applyBotMitigation, setRealisticHeaders } = require('./bot_mitigation_final_fix');
 const { handleConsentBanners, waitForPageReady } = require('./consent_handler_fixed');
 const { instrumentPage } = require('./instrumentation');
 const { enhancedInstrumentPage } = require('./enhanced_instrumentation_optimized');
 
-// FIXED: Enhanced stealth plugin configuration to prevent protocol issues
+// Enhanced stealth plugin configuration to prevent protocol issues
 const stealthPlugin = StealthPlugin();
 // Remove problematic evasions that can cause target closure and webdriver conflicts
 stealthPlugin.enabledEvasions.delete('user-agent-override');
 stealthPlugin.enabledEvasions.delete('webgl.vendor');
 stealthPlugin.enabledEvasions.delete('webgl.renderer');
-stealthPlugin.enabledEvasions.delete('navigator.webdriver'); // FIXED: Remove to prevent conflicts
+stealthPlugin.enabledEvasions.delete('navigator.webdriver'); // Remove to prevent conflicts
 puppeteer.use(stealthPlugin);
 
 const INPUT_CSV = '../top-1m.csv'; // Can also use 'test_URLs.csv' for testing
@@ -89,7 +88,7 @@ function isCrawlComplete(urlDir) {
 
 const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
 if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
-  console.warn(`⚠️  Consent-O-Matic extension not found at ${extensionDir}, continuing without extension`);
+  console.warn(`Consent-O-Matic extension not found at ${extensionDir}, continuing without extension`);
 }
 
 const allQueues = [];
@@ -112,28 +111,28 @@ const allQueues = [];
       // Process each URL with a fresh browser instance
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        
+
         // Create a filesystem-safe slug from the URL
         const slug = url
           .replace(/(^\w+:|^)\//, '')      // strip protocol
           .replace(/[^a-zA-Z0-9\-_.]/g, '_') // replace unsafe chars with underscores
           .substring(0, 100);                 // limit length
-        
+
         const urlDir = path.join(OUTPUT_DIR, slug);
-        
+
         // Check if crawl is already complete
         if (isCrawlComplete(urlDir)) {
-          console.log(`✅ Skipping already completed site ${i + 1}/${urls.length}: ${url}`);
+          console.log(`Skipping already completed site ${i + 1}/${urls.length}: ${url}`);
           continue;
         } else if (fs.existsSync(urlDir)) {
-          console.log(`🔄 Re-crawling incomplete site ${i + 1}/${urls.length}: ${url}`);
-          
+          console.log(`Re-crawling incomplete site ${i + 1}/${urls.length}: ${url}`);
+
           // Archive incomplete data before re-crawling
           const archiveDir = path.join(urlDir, `incomplete_${Date.now()}`);
           if (!fs.existsSync(archiveDir)) {
             fs.mkdirSync(archiveDir, { recursive: true });
           }
-          
+
           // Move existing files to archive
           const existingFiles = fs.readdirSync(urlDir).filter(f => f !== path.basename(archiveDir));
           for (const file of existingFiles) {
@@ -142,18 +141,17 @@ const allQueues = [];
                 fs.renameSync(path.join(urlDir, file), path.join(archiveDir, file));
               }
             } catch (err) {
-              console.warn(`⚠️  Could not archive ${file}: ${err.message}`);
+              console.warn(`Could not archive ${file}: ${err.message}`);
             }
           }
         } else {
-          console.log(`\n🆕 Processing new site ${i + 1}/${urls.length}: ${url}`);
-      console.log(`🔍 Starting balanced crawl of ${url}`);
+          console.log(`\nProcessing new site ${i + 1}/${urls.length}: ${url}`);
+      console.log(`Starting balanced crawl of ${url}`);
         }
-        
+
         // Create fresh browser for each site
         let browser = null;
         try {
-          // FIXED: Enhanced browser launch configuration
           browser = await puppeteer.launch({
             headless: false,   // extensions only work in headful mode
             protocolTimeout: 180000, // Increased to 3 minutes for problematic sites
@@ -171,14 +169,11 @@ const allQueues = [];
               '--disable-renderer-backgrounding',
               '--disable-field-trial-config',
               '--disable-ipc-flooding-protection',
-              // FIXED: Enhanced iframe and navigation handling
               '--disable-iframe-blocking',
               '--disable-features=IsolateOrigins,site-per-process',
               '--disable-site-isolation-trials',
-              // FIXED: Extension support
               `--disable-extensions-except=${extensionDir}`,
               `--load-extension=${extensionDir}`,
-              // FIXED: Better tab management
               '--disable-popup-blocking',
               '--disable-default-apps'
             ],
@@ -188,17 +183,17 @@ const allQueues = [];
 
           // Create site-specific queues array for this iteration
           const siteQueues = [];
-          
+
           try {
             await processSingleSite(browser, url, siteQueues);
           } catch (err) {
-            console.error(`❌ Error processing ${url}:`, err.message);
-            
+            console.error(`Error processing ${url}:`, err.message);
+
             // Log error to both central and site-specific logs
             if (!fs.existsSync(urlDir)) {
               fs.mkdirSync(urlDir, { recursive: true });
             }
-            
+
             // Central error log
             try {
               fs.appendFileSync(
@@ -206,7 +201,7 @@ const allQueues = [];
                 `[${new Date().toISOString()}] ${url}: ${err.stack || err.message}\n\n`
               );
             } catch (logErr) {
-              console.warn(`⚠️  Could not write to central error log: ${logErr.message}`);
+              console.warn(`Could not write to central error log: ${logErr.message}`);
             }
             fs.appendFileSync(
               path.join(urlDir, 'error.log'),
@@ -221,30 +216,28 @@ const allQueues = [];
                   if (!page.isClosed()) await page.close();
                 }
                 await browser.close();
-                console.log(`🔒 Browser closed for ${url}`);
+                console.log(`Browser closed for ${url}`);
               } catch (e) {
-                console.warn(`⚠️  Could not close browser cleanly: ${e.message}`);
+                console.warn(`Could not close browser cleanly: ${e.message}`);
               }
             }
           }
         } catch (err) {
-          console.error(`❌ Failed to process site ${url}:`, err.message);
+          console.error(`Failed to process site ${url}:`, err.message);
         }
       }
-      
-      console.log('✅ All sites processed successfully!');
+
+      console.log('All sites processed successfully!');
     });
 })();
 
-/**
- * FIXED: Enhanced site processing with comprehensive error handling and tab management
- */
+
 async function processSingleSite(browser, url, siteQueues) {
   const slug = url
     .replace(/(^\w+:|^)\//, '')
     .replace(/[^a-zA-Z0-9\-_.]/g, '_')
     .substring(0, 100);
-  
+
   const urlDir = path.join(OUTPUT_DIR, slug);
   if (!fs.existsSync(urlDir)) fs.mkdirSync(urlDir, { recursive: true });
 
@@ -252,12 +245,12 @@ async function processSingleSite(browser, url, siteQueues) {
   const termStream = fs.createWriteStream(path.join(urlDir, 'terminal_output.log'));
   const origStdout = process.stdout.write;
   const origStderr = process.stderr.write;
-  
+
   process.stdout.write = function(chunk, encoding, callback) {
     termStream.write(chunk, encoding, callback);
     return origStdout.call(process.stdout, chunk, encoding, callback);
   };
-  
+
   process.stderr.write = function(chunk, encoding, callback) {
     termStream.write(chunk, encoding, callback);
     return origStderr.call(process.stderr, chunk, encoding, callback);
@@ -268,12 +261,12 @@ async function processSingleSite(browser, url, siteQueues) {
   let instrumentationResult = null;
 
   try {
-    // FIXED: Enhanced page creation with better error handling
-    console.log('📄 Creating new page...');
+    // Enhanced page creation with better error handling
+    console.log('Creating new page...');
     page = await browser.newPage();
-    console.log('✅ New page created successfully');
-    
-    // FIXED: Close any unwanted tabs immediately
+    console.log('New page created successfully');
+
+    // Close any unwanted tabs immediately
     const allPages = await browser.pages();
     for (const p of allPages) {
       if (p !== page && !p.isClosed()) {
@@ -283,10 +276,10 @@ async function processSingleSite(browser, url, siteQueues) {
             pageUrl === 'about:blank' ||
             pageUrl === '') {
           try {
-            console.log(`🗑️  Closing unwanted initial tab: ${pageUrl}`);
+            console.log(`Closing unwanted initial tab: ${pageUrl}`);
             await p.close();
           } catch (e) {
-            console.warn(`⚠️  Could not close initial tab: ${e.message}`);
+            console.warn(`Could not close initial tab: ${e.message}`);
           }
         }
       }
@@ -294,7 +287,7 @@ async function processSingleSite(browser, url, siteQueues) {
 
     // Set realistic headers and user agent
     await setRealisticHeaders(page);
-    
+
     // Set viewport to common desktop size
     await page.setViewport({ width: 1366, height: 768 });
 
@@ -309,36 +302,36 @@ async function processSingleSite(browser, url, siteQueues) {
     // Add queues to site-specific array for cleanup
     siteQueues.push(networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue);
 
-    // FINAL FIX: Enhanced navigation with comprehensive redirect handling for sites like x.com
+    // Enhanced navigation with comprehensive redirect handling for sites like x.com
     workingUrl = url.startsWith('http') ? url : `https://${url}`;
     normalizedURL = normalizeUrl(workingUrl);
-    
-    console.log(`📡 Navigating to ${url}`);
-    console.log(`🔗 Working URL: ${workingUrl}`);
-    console.log(`🎯 Normalized URL: ${normalizedURL}`);
-    
+
+    console.log(`Navigating to ${url}`);
+    console.log(`Working URL: ${workingUrl}`);
+    console.log(`Normalized URL: ${normalizedURL}`);
+
     console.log(normalizedURL);
 
     try {
-      // FINAL FIX: Multiple navigation strategies with enhanced redirect detection
+      // Multiple navigation strategies with redirect detection
       let navigationSuccess = false;
       const navigationStrategies = [
         { waitUntil: 'networkidle0', timeout: 60000 },
         { waitUntil: 'domcontentloaded', timeout: 45000 },
         { waitUntil: 'load', timeout: 20000 },
-        { waitUntil: 'networkidle2', timeout: 25000 } // Additional strategy
+        { waitUntil: 'networkidle2', timeout: 25000 }
       ];
-      
+
       for (const strategy of navigationStrategies) {
         try {
-          console.log(`🧭 Attempting navigation with strategy: ${strategy.waitUntil}`);
+          console.log(`Attempting navigation with strategy: ${strategy.waitUntil}`);
           
           // Validate URL before navigation
           if (!normalizedURL || normalizedURL === 'about:blank' || !normalizedURL.startsWith('http')) {
             throw new Error(`Invalid URL for navigation: ${normalizedURL}`);
           }
           
-          console.log(`🚀 Attempting to navigate to: ${normalizedURL}`);
+          console.log(`Attempting to navigate to: ${normalizedURL}`);
           
           // Navigate with response monitoring
           const response = await page.goto(normalizedURL, strategy);
@@ -368,9 +361,9 @@ async function processSingleSite(browser, url, siteQueues) {
             };
           });
           
-          console.log(`🧭 Navigation result: ${finalUrl}`);
-          console.log(`📄 Page title: ${title}`);
-          console.log(`📝 Content check:`, contentCheck);
+          console.log(`Navigation result: ${finalUrl}`);
+          console.log(`Page title: ${title}`);
+          console.log(`Content check:`, contentCheck);
           
           // Enhanced success criteria
           const hasContent = contentCheck.bodyLength > 50 || 
@@ -385,7 +378,7 @@ async function processSingleSite(browser, url, siteQueues) {
                            !finalUrl.includes('data:text/html,chromewebdata');
           
           if (isValidUrl && (title || hasContent)) {
-            console.log(`✅ Navigation succeeded with ${strategy.waitUntil}`);
+            console.log(`Navigation succeeded with ${strategy.waitUntil}`);
             navigationSuccess = true;
             workingUrl = finalUrl; // Update working URL to final redirected URL
             
@@ -396,11 +389,11 @@ async function processSingleSite(browser, url, siteQueues) {
             console.log(`   → Elements: ${contentCheck.totalElements}`);
             break;
           } else {
-            console.warn(`⚠️  Navigation to ${finalUrl} resulted in insufficient content`);
+            console.warn(`Navigation to ${finalUrl} resulted in insufficient content`);
           }
           
         } catch (navError) {
-          console.warn(`⚠️  Navigation strategy ${strategy.waitUntil} failed: ${navError.message}`);
+          console.warn(`Navigation strategy ${strategy.waitUntil} failed: ${navError.message}`);
           continue;
         }
       }
@@ -410,14 +403,13 @@ async function processSingleSite(browser, url, siteQueues) {
       }
       
     } catch (error) {
-      console.error(`❌ Navigation failed for ${url}: ${error.message}`);
+      console.error(`Navigation failed for ${url}: ${error.message}`);
       throw error;
     }
 
-    // FIXED: Enhanced consent handling with proper tab management
-    console.log('🍪 Handling consent banners with Consent-O-Matic...');
+    console.log('Handling consent banners with Consent-O-Matic...');
     page = await handleConsentBanners(page, browser);
-    console.log('✅ Consent handling completed');
+    console.log('Consent handling completed');
     
     // Ensure we're still on the right page after consent handling
     if (page.isClosed()) {
@@ -437,8 +429,7 @@ async function processSingleSite(browser, url, siteQueues) {
       logMitigation: true
     });
 
-    // FIXED: Enhanced instrumentation with better error handling
-    console.log('🔧 Setting up enhanced instrumentation...');
+    console.log('Setting up enhanced instrumentation...');
     instrumentationResult = await enhancedInstrumentPage(page, {
       networkQueue,
       responseQueue,
@@ -447,35 +438,34 @@ async function processSingleSite(browser, url, siteQueues) {
       interactionQueue,
       functionTrackingQueue,
     });
-    console.log('✅ Enhanced instrumentation setup complete');
+    console.log('Enhanced instrumentation setup complete');
 
     client = instrumentationResult.client;
     
     // Enable CDP domains with retry logic
-    console.log('🔌 Enabling CDP domains...');
+    console.log('Enabling CDP domains...');
     try {
       await client.send('Network.enable');
-      console.log('✅ Network.enable enabled successfully');
+      console.log('Network.enable enabled successfully');
     } catch (e) {
-      console.warn('⚠️  Network.enable failed:', e.message);
+      console.warn('Network.enable failed:', e.message);
     }
     
     try {
       await client.send('Runtime.enable');
-      console.log('✅ Runtime.enable enabled successfully');
+      console.log('Runtime.enable enabled successfully');
     } catch (e) {
-      console.warn('⚠️  Runtime.enable failed:', e.message);
+      console.warn('Runtime.enable failed:', e.message);
     }
     
     try {
       await client.send('DOM.enable');
-      console.log('✅ DOM.enable enabled successfully');
+      console.log('DOM.enable enabled successfully');
     } catch (e) {
-      console.warn('⚠️  DOM.enable failed:', e.message);
+      console.warn('DOM.enable failed:', e.message);
     }
 
-    // PRODUCTION FIX: Enhanced generic detection with dynamic content support
-    console.log('🔍 Running generic detection (regex-based patterns + iframe support)...');
+    console.log('Running generic detection (regex-based patterns + iframe support)...');
     const genericDetectionResults = await performGenericDetection(page, {
       enableIframeDetection: true,
       enableAdvancedPatterns: true,
@@ -489,12 +479,12 @@ async function processSingleSite(browser, url, siteQueues) {
       const dynamicStatus = instrumentationResult.getDynamicContentStatus ? instrumentationResult.getDynamicContentStatus() : false;
       const domains = instrumentationResult.getMeaningfulDomains ? instrumentationResult.getMeaningfulDomains() : [];
       
-      console.log(`📊 Instrumentation Status:`);
-      console.log(`   🌐 Network requests: ${networkCount}`);
-      console.log(`   🔄 Dynamic content: ${dynamicStatus ? 'Detected' : 'None'}`);
-      console.log(`   🌍 Meaningful domains: ${domains.length}`);
+      console.log(`Instrumentation Status:`);
+      console.log(`   Network requests: ${networkCount}`);
+      console.log(`   Dynamic content: ${dynamicStatus ? 'Detected' : 'None'}`);
+      console.log(`   Meaningful domains: ${domains.length}`);
       if (domains.length > 0) {
-        console.log(`   📋 Domains: ${domains.slice(0, 5).join(', ')}${domains.length > 5 ? '...' : ''}`);
+        console.log(`   Domains: ${domains.slice(0, 5).join(', ')}${domains.length > 5 ? '...' : ''}`);
       }
     }
 
@@ -522,9 +512,9 @@ async function processSingleSite(browser, url, siteQueues) {
       timestamp: Date.now()
     });
     
-    console.log(`📊 Completed ${interactionSummary.totalInteractions} interactions with ${interactionSummary.totalNetworkRequests} network requests`);
+    console.log(`Completed ${interactionSummary.totalInteractions} interactions with ${interactionSummary.totalNetworkRequests} network requests`);
     // Generate comprehensive function tracking report
-    console.log('📊 Generating function tracking report...');
+    console.log('Generating function tracking report...');
     const functionTrackingReport = await instrumentationResult.getFunctionTrackingReport();
     
     if (functionTrackingReport) {
@@ -532,13 +522,13 @@ async function processSingleSite(browser, url, siteQueues) {
       try {
         const reportPath = path.join(urlDir, 'function_tracking_report.json');
         await fs.promises.writeFile(reportPath, JSON.stringify(functionTrackingReport, null, 2));
-        console.log(`💾 Function tracking report saved to: ${reportPath}`);
+        console.log(`Function tracking report saved to: ${reportPath}`);
       } catch (reportError) {
-        console.warn(`⚠️  Could not save function tracking report: ${reportError.message}`);
+        console.warn(`Could not save function tracking report: ${reportError.message}`);
       }
     }
     
-    console.log(`✅ Crawled ${url} successfully`);
+    console.log(`Crawled ${url} successfully`);
     console.log(`   - Network requests: ${interactionSummary.totalNetworkRequests}`);
     console.log(`   - Input interactions: ${interactionSummary.totalInteractions}`);
     console.log(`   - Elements found: ${interactionSummary.totalElementsFound}`);
@@ -562,18 +552,18 @@ async function processSingleSite(browser, url, siteQueues) {
     });
 
   } catch (err) {
-    console.error(`❌ Error crawling ${url}:`, err.message);
+    console.error(`Error crawling ${url}:`, err.message);
     
-    // FIXED: Always ensure data is saved even on error
-    console.log(`💾 Ensuring data is saved for ${url} despite error...`);
+    // Always ensure data is saved even on error
+    console.log(`Ensuring data is saved for ${url} despite error...`);
     try {
       // Force flush all queues to save any collected data
       if (siteQueues && siteQueues.length > 0) {
         await Promise.all(siteQueues.map(q => q.flush()));
-        console.log(`💾 Successfully saved partial data for ${url}`);
+        console.log(`Successfully saved partial data for ${url}`);
       }
     } catch (flushError) {
-      console.warn(`⚠️  Could not save data for ${url}:`, flushError.message);
+      console.warn(`Could not save data for ${url}:`, flushError.message);
     }
     
     throw err; // Re-throw to be handled by caller
@@ -583,17 +573,15 @@ async function processSingleSite(browser, url, siteQueues) {
     process.stderr.write = origStderr;
     termStream.end();
     
-    // FIXED: Enhanced cleanup with better error handling
     if (client) {
       try {
-        // Check if session is still active before detaching
         if (client._connection && !client._connection._closed) {
           await client.detach();
         }
       } catch (e) {
         // Ignore common cleanup errors that don't affect functionality
         if (!e.message.includes('Session already detached') && !e.message.includes('Connection closed')) {
-          console.warn(`⚠️  Could not detach CDP session: ${e.message}`);
+          console.warn(`Could not detach CDP session: ${e.message}`);
         }
       }
     }
@@ -603,11 +591,11 @@ async function processSingleSite(browser, url, siteQueues) {
       try {
         instrumentationResult.cleanup();
       } catch (e) {
-        console.warn(`⚠️  Could not cleanup instrumentation: ${e.message}`);
+        console.warn(`Could not cleanup instrumentation: ${e.message}`);
       }
     }
     
-    // FIXED: Close all tabs except main page, then close main page
+    // Close all tabs except main page, then close main page
     try {
       const allPages = await browser.pages();
       for (const p of allPages) {
@@ -615,12 +603,12 @@ async function processSingleSite(browser, url, siteQueues) {
           try {
             await p.close();
           } catch (e) {
-            console.warn(`⚠️  Could not close page ${p.url()}: ${e.message}`);
+            console.warn(`Could not close page ${p.url()}: ${e.message}`);
           }
         }
       }
     } catch (e) {
-      console.warn(`⚠️  Error during page cleanup: ${e.message}`);
+      console.warn(`Error during page cleanup: ${e.message}`);
     }
     
     // Flush site-specific queues and wait for all writes to complete
@@ -629,7 +617,7 @@ async function processSingleSite(browser, url, siteQueues) {
       // Wait for all pending writes to complete
       await Promise.all(siteQueues.map(q => q.waitForFlush ? q.waitForFlush() : Promise.resolve()));
     } catch (e) {
-      console.warn(`⚠️  Could not flush queues: ${e.message}`);
+      console.warn(`Could not flush queues: ${e.message}`);
     }
   }
 }

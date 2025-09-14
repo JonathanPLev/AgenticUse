@@ -158,7 +158,7 @@ async function enhancedInstrumentPage(page, queues) {
     try {
       await client.send(domain);
     } catch (err) {
-      console.warn(`⚠️  Failed to enable ${domain}: ${err.message}`);
+      console.warn(`Failed to enable ${domain}: ${err.message}`);
     }
   }
 
@@ -170,7 +170,7 @@ async function enhancedInstrumentPage(page, queues) {
     await client.send('Runtime.setAsyncCallStackDepth', { maxDepth: 16 });
     await client.send('Debugger.setSkipAllPauses', { skip: false });
   } catch (debuggerError) {
-    console.warn(`⚠️  Enhanced debugger configuration failed: ${debuggerError.message}`);
+    console.warn(`Enhanced debugger configuration failed: ${debuggerError.message}`);
   }
 
   // Frame tracking with reduced logging
@@ -188,7 +188,7 @@ async function enhancedInstrumentPage(page, queues) {
         createdAt: Date.now()
       });
     } catch (error) {
-      console.warn(`⚠️  Error handling frame attach: ${error.message}`);
+      console.warn(`Error handling frame attach: ${error.message}`);
     }
   });
 
@@ -231,7 +231,7 @@ async function enhancedInstrumentPage(page, queues) {
                 await processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue);
               }
             } catch (error) {
-              console.warn(`⚠️  Error processing navigated frame: ${error.message}`);
+              console.warn(`Error processing navigated frame: ${error.message}`);
             }
           }, 2000);
         } catch (urlError) {
@@ -240,7 +240,7 @@ async function enhancedInstrumentPage(page, queues) {
       }
       
     } catch (error) {
-      console.warn(`⚠️  Error handling frame navigation: ${error.message}`);
+      console.warn(`Error handling frame navigation: ${error.message}`);
     }
   });
 
@@ -295,7 +295,7 @@ async function enhancedInstrumentPage(page, queues) {
         });
       });
     } catch (error) {
-      console.warn(`⚠️  Error handling network request: ${error.message}`);
+      console.warn(`Error handling network request: ${error.message}`);
     }
   });
 
@@ -368,7 +368,7 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
     } catch (error) {
-      console.warn(`⚠️  Error handling network response: ${error.message}`);
+      console.warn(`Error handling network response: ${error.message}`);
     }
   });
 
@@ -402,7 +402,7 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
     } catch (error) {
-      console.warn(`⚠️  Error handling script parsed: ${error.message}`);
+      console.warn(`Error handling script parsed: ${error.message}`);
     }
   });
 
@@ -429,11 +429,11 @@ async function enhancedInstrumentPage(page, queues) {
       
       await client.send('Debugger.resume');
     } catch (error) {
-      console.warn(`⚠️  Error handling debugger pause: ${error.message}`);
+      console.warn(`Error handling debugger pause: ${error.message}`);
       try {
         await client.send('Debugger.resume');
       } catch (resumeError) {
-        console.warn(`⚠️  Error resuming debugger: ${resumeError.message}`);
+        console.warn(`Error resuming debugger: ${resumeError.message}`);
       }
     }
   });
@@ -459,7 +459,7 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
     } catch (error) {
-      console.warn(`⚠️  Error handling console event: ${error.message}`);
+      console.warn(`Error handling console event: ${error.message}`);
     }
   });
 
@@ -474,7 +474,7 @@ async function enhancedInstrumentPage(page, queues) {
         timestamp: Date.now()
       });
     } catch (logError) {
-      console.warn(`⚠️  Error logging page error: ${logError.message}`);
+      console.warn(`Error logging page error: ${logError.message}`);
     }
   });
 
@@ -483,7 +483,7 @@ async function enhancedInstrumentPage(page, queues) {
     try {
       await processAllFramesOptimized(page, client, domQueue, interactionQueue, frameTracker, processedFrames);
     } catch (error) {
-      console.warn(`⚠️  Error in periodic frame processing: ${error.message}`);
+      console.warn(`Error in periodic frame processing: ${error.message}`);
     }
   }, 30000); // Increased to 30 seconds
 
@@ -495,7 +495,7 @@ async function enhancedInstrumentPage(page, queues) {
       meaningfulDomains.clear();
       functionTracker.cleanup();
     } catch (error) {
-      console.warn(`⚠️  Error during instrumentation cleanup: ${error.message}`);
+      console.warn(`Error during instrumentation cleanup: ${error.message}`);
     }
   };
 
@@ -556,11 +556,11 @@ async function processFrameContentOptimized(client, frameId, frameUrl, domQueue,
       if (domError.message.includes('detached') || domError.message.includes('Could not find node')) {
         return;
       }
-      console.warn(`⚠️  Error getting DOM for frame ${frameId}: ${domError.message}`);
+      console.warn(`Error getting DOM for frame ${frameId}: ${domError.message}`);
     }
   } catch (error) {
     if (!error.message.includes('detached')) {
-      console.warn(`⚠️  Error processing frame content ${frameId}: ${error.message}`);
+      console.warn(`Error processing frame content ${frameId}: ${error.message}`);
     }
   }
 }
@@ -596,11 +596,11 @@ async function processAllFramesOptimized(page, client, domQueue, interactionQueu
         if (frameError.message.includes('detached') || frameError.message.includes('Attempted to use detached Frame')) {
           continue;
         }
-        console.warn(`⚠️  Error processing frame ${frame.url()}: ${frameError.message}`);
+        console.warn(`Error processing frame ${frame.url()}: ${frameError.message}`);
       }
     }
   } catch (error) {
-    console.warn(`⚠️  Error in processAllFramesOptimized: ${error.message}`);
+    console.warn(`Error in processAllFramesOptimized: ${error.message}`);
   }
 }
 

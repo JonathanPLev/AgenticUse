@@ -1,8 +1,7 @@
 // generic_detection_fixed.js
-// CRITICAL FIX: Fixed className.split error and improved dynamic content detection
 
 /**
- * FIXED: Generic search bar detection using regex patterns
+ * Generic search bar detection using regex patterns
  */
 async function detectSearchBarsGeneric(page) {
   return await page.evaluate(() => {
@@ -59,7 +58,7 @@ async function detectSearchBarsGeneric(page) {
 }
 
 /**
- * FIXED: Generic chatbot detection using regex patterns
+ * Generic chatbot detection using regex patterns
  */
 async function detectChatbotsGeneric(page) {
   return await page.evaluate(() => {
@@ -100,7 +99,7 @@ async function detectChatbotsGeneric(page) {
     const allElements = Array.from(document.querySelectorAll('*'));
     allElements.forEach(el => {
       try {
-        // CRITICAL FIX: Safely handle className and other properties
+        // Safely handle className and other properties
         const className = el.className || '';
         const classString = typeof className === 'string' ? className : (className.toString ? className.toString() : '');
         const id = el.id || '';
@@ -149,21 +148,18 @@ async function detectChatbotsGeneric(page) {
   });
 }
 
-/**
- * FIXED: Enhanced iframe chatbot detection with better filtering
- */
+
 async function detectChatbotsInIframes(page) {
   const iframeChatbots = [];
   
   try {
     const frames = page.frames();
-    console.log(`🔍 Checking ${frames.length} frames for chatbots (including iframes)`);
+    console.log(`Checking ${frames.length} frames for chatbots (including iframes)`);
     
     for (const frame of frames) {
       try {
         const frameUrl = frame.url();
         
-        // FIXED: Better iframe filtering - skip about:blank and data URLs but allow meaningful iframes
         if (!frameUrl || 
             frameUrl === 'about:blank' || 
             frameUrl.startsWith('data:') ||
@@ -172,7 +168,6 @@ async function detectChatbotsInIframes(page) {
           continue;
         }
         
-        // FIXED: Enhanced iframe relevance check
         const isRelevantIframe = await frame.evaluate(() => {
           try {
             const body = document.body;
@@ -193,7 +188,7 @@ async function detectChatbotsInIframes(page) {
           continue;
         }
         
-        console.log(`  📄 Checking frame: ${frameUrl}`);
+        console.log(`  Checking frame: ${frameUrl}`);
         
         // Check for chatbot patterns in iframe
         const frameChatbots = await frame.evaluate(() => {
@@ -220,7 +215,7 @@ async function detectChatbotsInIframes(page) {
           const elements = Array.from(document.querySelectorAll('*'));
           elements.forEach(el => {
             try {
-              // FIXED: Safe className handling in iframes too
+              // Safe className handling in iframes too
               const className = el.className || '';
               const classString = typeof className === 'string' ? className : (className.toString ? className.toString() : '');
               const id = el.id || '';
@@ -242,7 +237,7 @@ async function detectChatbotsInIframes(page) {
                     id: id,
                     className: classString,
                     textContent: textContent.substring(0, 100),
-                    // FIXED: Safe selector generation in iframes
+                    // Safe selector generation in iframes
                     selector: id ? `#${id}` : (classString ? `.${classString.split(' ')[0]}` : el.tagName.toLowerCase()),
                     detectionMethod: 'iframe_dom_analysis',
                     isVisible: isVisible
@@ -265,26 +260,23 @@ async function detectChatbotsInIframes(page) {
         }
         
       } catch (frameError) {
-        // FIXED: Better error handling for detached frames
+        // Better error handling for detached frames
         if (frameError.message.includes('detached') || frameError.message.includes('Execution context was destroyed')) {
           continue; // Skip detached frames silently
         }
-        console.warn(`⚠️  Error checking frame ${frame.url()}: ${frameError.message}`);
+        console.warn(`Error checking frame ${frame.url()}: ${frameError.message}`);
       }
     }
     
-    console.log(`✅ Found ${iframeChatbots.length} chatbot indicators across all frames`);
+    console.log(`Found ${iframeChatbots.length} chatbot indicators across all frames`);
     
   } catch (error) {
-    console.warn(`⚠️  Error in iframe chatbot detection: ${error.message}`);
+    console.warn(`Error in iframe chatbot detection: ${error.message}`);
   }
   
   return iframeChatbots;
 }
 
-/**
- * FIXED: Main generic detection function with enhanced dynamic content detection
- */
 async function performGenericDetection(page, options = {}) {
   const {
     enableIframeDetection = true,
@@ -294,11 +286,11 @@ async function performGenericDetection(page, options = {}) {
   } = options;
 
   try {
-    console.log('🔍 Starting generic detection (regex-based patterns)...');
+    console.log('Starting generic detection (regex-based patterns)...');
     
-    // FIXED: Wait for dynamic content to load
+    // Wait for dynamic content to load
     if (enableDynamicDetection) {
-      console.log('⏳ Waiting for dynamic content to load...');
+      console.log('Waiting for dynamic content to load...');
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       // Scroll to trigger lazy loading
@@ -315,11 +307,11 @@ async function performGenericDetection(page, options = {}) {
     
     // Detect search bars
     const searchElements = await detectSearchBarsGeneric(page);
-    console.log(`📝 Found ${searchElements.length} search elements using generic patterns`);
+    console.log(`Found ${searchElements.length} search elements using generic patterns`);
     
     // Detect chatbots in main frame
     const mainFrameChatbots = await detectChatbotsGeneric(page);
-    console.log(`💬 Found ${mainFrameChatbots.length} chatbot indicators using generic patterns`);
+    console.log(`Found ${mainFrameChatbots.length} chatbot indicators using generic patterns`);
     
     // Detect chatbots in iframes
     let iframeChatbots = [];
@@ -328,7 +320,7 @@ async function performGenericDetection(page, options = {}) {
     }
     
     const totalIframeChatbots = iframeChatbots.reduce((total, frame) => total + frame.chatbots.length, 0);
-    console.log(`🖼️  Found ${totalIframeChatbots} chatbot indicators in all frames`);
+    console.log(`Found ${totalIframeChatbots} chatbot indicators in all frames`);
     
     const results = {
       searchElements: searchElements,
@@ -341,16 +333,16 @@ async function performGenericDetection(page, options = {}) {
     };
     
     if (logResults) {
-      console.log('🔍 Generic detection results:');
-      console.log(`   📝 Search elements: ${results.totalSearchElements}`);
-      console.log(`   💬 Chatbots (main frame): ${results.totalMainFrameChatbots}`);
-      console.log(`   🖼️  Chatbots (all frames): ${results.totalIframeChatbots}`);
+      console.log('Generic detection results:');
+      console.log(`   Search elements: ${results.totalSearchElements}`);
+      console.log(`   Chatbots (main frame): ${results.totalMainFrameChatbots}`);
+      console.log(`   Chatbots (all frames): ${results.totalIframeChatbots}`);
     }
     
     return results;
     
   } catch (error) {
-    console.error(`❌ Generic detection failed: ${error.message}`);
+    console.error(`Generic detection failed: ${error.message}`);
     console.error(error.stack);
     
     // Return empty results instead of failing completely

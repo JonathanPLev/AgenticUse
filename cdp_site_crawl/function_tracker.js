@@ -537,7 +537,7 @@ class FunctionTracker {
         };
       });
     } catch (error) {
-      console.error('❌ Error initializing function tracker:', error.message);
+      console.error('Error initializing function tracker:', error.message);
     }
   }
 
@@ -712,7 +712,7 @@ class FunctionTracker {
         }
 
       } catch (error) {
-        console.warn('⚠️  Error collecting function tracking data:', error.message);
+        console.warn('Error collecting function tracking data:', error.message);
       }
     };
 
@@ -800,7 +800,7 @@ class FunctionTracker {
         }
       };
     } catch (error) {
-      console.error('❌ Error generating tracking report:', error.message);
+      console.error('Error generating tracking report:', error.message);
       return null;
     }
   }

@@ -1,13 +1,9 @@
 // bot_mitigation_final_fix.js
-// FINAL FIX: Enhanced bot mitigation with proper webdriver property handling
+// Enhanced bot mitigation with proper webdriver property handling
 
 const fs = require('fs');
 const path = require('path');
 
-/**
- * Advanced bot mitigation techniques to make the browser appear more human-like
- * FINAL FIX: Proper webdriver property handling that actually works
- */
 async function applyBotMitigation(page, options = {}) {
   const {
     enableMouseMovement = true,
@@ -19,10 +15,9 @@ async function applyBotMitigation(page, options = {}) {
     logMitigation = true
   } = options;
 
-  if (logMitigation) console.log('🛡️  Applying enhanced bot mitigation...');
+  if (logMitigation) console.log('Applying enhanced bot mitigation...');
 
   try {
-    // FINAL FIX: Comprehensive webdriver property override that actually works
     await page.evaluateOnNewDocument(() => {
       // Method 1: Direct property deletion and redefinition
       try {
@@ -103,7 +98,7 @@ async function applyBotMitigation(page, options = {}) {
       });
     });
 
-    // 5. Human-like mouse movements - FIXED viewport issue
+    // 5. Human-like mouse movements with proper viewport handling
     if (enableMouseMovement) {
       try {
         await simulateHumanMouseMovement(page);
@@ -133,16 +128,16 @@ async function applyBotMitigation(page, options = {}) {
       console.warn('Random clicks failed:', error.message);
     }
 
-    if (logMitigation) console.log('✅ Bot mitigation applied successfully');
+    if (logMitigation) console.log('Bot mitigation applied successfully');
 
   } catch (error) {
-    console.error('❌ Bot mitigation failed:', error.message);
+    console.error('Bot mitigation failed:', error.message);
     throw error;
   }
 }
 
 /**
- * FIXED: Simulate human-like mouse movements with proper viewport handling
+ * Simulate human-like mouse movements with proper viewport handling
  */
 async function simulateHumanMouseMovement(page) {
   try {
@@ -240,14 +235,14 @@ async function simulateRandomClicks(page) {
 
         // If navigation occurred, go back to original page
         if (navigationOccurred || page.url() !== urlBeforeClick) {
-          console.log(`⚠️  Random click caused navigation from ${urlBeforeClick} to ${page.url()}, reverting...`);
+          console.log(`Random click caused navigation from ${urlBeforeClick} to ${page.url()}, reverting...`);
           try {
             await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 });
             // If goBack doesn't work, navigate directly to original URL
             if (page.url() !== originalUrl) {
               await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
             }
-            console.log(`✅ Successfully reverted to ${originalUrl}`);
+            console.log(`Successfully reverted to ${originalUrl}`);
           } catch (revertError) {
             console.warn('Failed to revert navigation:', revertError.message);
             // Try direct navigation as last resort

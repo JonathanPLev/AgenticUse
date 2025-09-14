@@ -133,14 +133,12 @@ async function checkForRemainingConsentBanners(page) {
   });
 }
 
-/**
- * FIXED: Enhanced consent banner handling with proper tab management
- */
+
 async function handleConsentBanners(page, browser) {
   try {
-    console.log('🍪 Checking for consent banners and Consent-O-Matic extension...');
+    console.log('Checking for consent banners and Consent-O-Matic extension...');
     
-    // FIXED: Get initial page count and close any unwanted tabs
+    // Get initial page count and close any unwanted tabs
     const initialPages = await browser.pages();
     const mainPage = page;
     const mainPageUrl = page.url();
@@ -155,10 +153,10 @@ async function handleConsentBanners(page, browser) {
             pageUrl === 'about:blank' ||
             pageUrl === '') {
           try {
-            console.log(`🗑️  Closing unwanted tab: ${pageUrl}`);
+            console.log(`Closing unwanted tab: ${pageUrl}`);
             await p.close();
           } catch (e) {
-            console.warn(`⚠️  Could not close tab ${pageUrl}: ${e.message}`);
+            console.warn(`Could not close tab ${pageUrl}: ${e.message}`);
           }
         }
       }
@@ -181,27 +179,27 @@ async function handleConsentBanners(page, browser) {
     const consentOMaticActive = await isConsentOMaticActive(page);
 
     if (consentOMaticActive.active) {
-      console.log(`✅ Consent-O-Matic detected (${consentOMaticActive.indicatorCount}/${consentOMaticActive.totalChecks} indicators)`);
+      console.log(`Consent-O-Matic detected (${consentOMaticActive.indicatorCount}/${consentOMaticActive.totalChecks} indicators)`);
       
       // Wait longer for Consent-O-Matic to work, then check if banners remain
       await randomDelay(3000, 5000);
       const remainingBanners = await checkForRemainingConsentBanners(page);
       
       if (remainingBanners.length > 0) {
-        console.log(`⚠️  Consent-O-Matic detected but ${remainingBanners.length} banners still visible, applying manual handling...`);
+        console.log(`Consent-O-Matic detected but ${remainingBanners.length} banners still visible, applying manual handling...`);
         await manualConsentHandling(page);
       } else {
-        console.log('✅ Consent-O-Matic successfully handled consent banners');
+        console.log('Consent-O-Matic successfully handled consent banners');
       }
     } else {
-      console.log('⚠️  Consent-O-Matic not detected, trying manual consent handling...');
+      console.log('Consent-O-Matic not detected, trying manual consent handling...');
       await manualConsentHandling(page);
     }
 
     // Additional wait for any remaining consent processing
     await randomDelay(1000, 2000);
     
-    // FIXED: Final cleanup - close any new tabs that opened during consent handling
+    // Final cleanup - close any new tabs that opened during consent handling
     const finalPages = await browser.pages();
     for (const p of finalPages) {
       if (p !== page && !p.isClosed()) {
@@ -211,10 +209,10 @@ async function handleConsentBanners(page, browser) {
             pageUrl === 'about:blank' ||
             pageUrl === '') {
           try {
-            console.log(`🗑️  Closing tab opened during consent handling: ${pageUrl}`);
+            console.log(`Closing tab opened during consent handling: ${pageUrl}`);
             await p.close();
           } catch (e) {
-            console.warn(`⚠️  Could not close consent tab ${pageUrl}: ${e.message}`);
+            console.warn(`Could not close consent tab ${pageUrl}: ${e.message}`);
           }
         }
       }
@@ -292,7 +290,7 @@ async function manualConsentHandling(page) {
 
           if (isVisible) {
             await element.click();
-            console.log(`✅ Clicked consent button: ${selector}`);
+            console.log(`Clicked consent button: ${selector}`);
             consentHandled = true;
             await randomDelay(500, 1000);
             break;
@@ -306,7 +304,7 @@ async function manualConsentHandling(page) {
     }
 
     if (!consentHandled) {
-      console.log('ℹ️  No consent banners found or already handled');
+      console.log('No consent banners found or already handled');
     }
 
   } catch (error) {
