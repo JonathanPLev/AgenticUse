@@ -279,26 +279,33 @@ async function processSingleSite(browser, url, siteQueues) {
 
   try {
     console.log('Creating new page...');
-    page = await browser.newPage();
-    console.log('New page created successfully');
-
-    // Close any unwanted tabs immediately
-    const allPages = await browser.pages();
-    for (const p of allPages) {
-      if (p !== page && !p.isClosed()) {
-        const pageUrl = p.url();
-        if (pageUrl.includes('chrome-extension://') || 
-            pageUrl.includes('consent-o-matic') ||
-            pageUrl === 'about:blank' ||
-            pageUrl === '') {
-          try {
-            console.log(`Closing unwanted initial tab: ${pageUrl}`);
-            await p.close();
-          } catch (e) {
-            console.warn(`Could not close initial tab: ${e.message}`);
-          }
+    
+    // Close ALL existing tabs first to ensure clean state
+    const existingPages = await browser.pages();
+    for (const p of existingPages) {
+      if (!p.isClosed()) {
+        try {
+          const pageUrl = p.url();
+          console.log(`Closing existing tab: ${pageUrl}`);
+          await p.close();
+        } catch (e) {
+          console.warn(`Could not close existing tab: ${e.message}`);
         }
       }
+    }
+    
+    // Create fresh page after closing all tabs
+    page = await browser.newPage();
+    console.log('New page created successfully');
+    
+    // Verify we're on a clean page
+    const currentUrl = page.url();
+    console.log(`Starting with clean page: ${currentUrl}`);
+    
+    // If somehow we're still on an extension page, force navigate to about:blank first
+    if (currentUrl.includes('chrome-extension://')) {
+      console.log('Detected extension page, navigating to about:blank first...');
+      await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 5000 });
     }
 
     // Set realistic headers and user agent
