@@ -23,9 +23,7 @@ const { handleConsentBanners, waitForPageReady } = require('./consent_handler_fi
 const { instrumentPage } = require('./instrumentation');
 const { enhancedInstrumentPage } = require('./enhanced_instrumentation_optimized');
 
-// Enhanced stealth plugin configuration to prevent protocol issues
 const stealthPlugin = StealthPlugin();
-// Remove problematic evasions that can cause target closure and webdriver conflicts
 stealthPlugin.enabledEvasions.delete('user-agent-override');
 stealthPlugin.enabledEvasions.delete('webgl.vendor');
 stealthPlugin.enabledEvasions.delete('webgl.renderer');
@@ -280,7 +278,6 @@ async function processSingleSite(browser, url, siteQueues) {
   let instrumentationResult = null;
 
   try {
-    // Enhanced page creation with better error handling
     console.log('Creating new page...');
     page = await browser.newPage();
     console.log('New page created successfully');
@@ -321,24 +318,39 @@ async function processSingleSite(browser, url, siteQueues) {
     // Add queues to site-specific array for cleanup
     siteQueues.push(networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue);
 
-    // Enhanced navigation with comprehensive redirect handling for sites like x.com
-    workingUrl = url.startsWith('http') ? url : `https://${url}`;
-    normalizedURL = normalizeUrl(workingUrl);
+    // Set realistic headers and user agent
+    await setRealisticHeaders(page);
 
+    console.log('Applying bot mitigation before navigation...');
+    await applyBotMitigation(page, {
+      enableMouseMovement: true,
+      enableRandomScrolling: true,
+      enableRandomDelays: true,
+      logMitigation: true
+    });
+    console.log('Bot mitigation applied successfully');
+
+    // Navigation with multiple strategies
     console.log(`Navigating to ${url}`);
+    let workingUrl = url;
+    let navigationSuccess = false;
+    
+    // Normalize URL
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      workingUrl = 'https://' + url;
+    }
     console.log(`Working URL: ${workingUrl}`);
-    console.log(`Normalized URL: ${normalizedURL}`);
-
-    console.log(normalizedURL);
+    console.log(`Normalized URL: ${workingUrl}`);
+    console.log(workingUrl);
 
     try {
       // Multiple navigation strategies with redirect detection
       let navigationSuccess = false;
       const navigationStrategies = [
-        { waitUntil: 'networkidle0', timeout: 60000 },
-        { waitUntil: 'domcontentloaded', timeout: 45000 },
-        { waitUntil: 'load', timeout: 20000 },
-        { waitUntil: 'networkidle2', timeout: 25000 }
+        { waitUntil: 'domcontentloaded', timeout: 15000 },
+        { waitUntil: 'networkidle2', timeout: 20000 },
+        { waitUntil: 'load', timeout: 10000 },
+        { waitUntil: 'networkidle0', timeout: 25000 }
       ];
 
       for (const strategy of navigationStrategies) {
@@ -346,19 +358,18 @@ async function processSingleSite(browser, url, siteQueues) {
           console.log(`Attempting navigation with strategy: ${strategy.waitUntil}`);
           
           // Validate URL before navigation
-          if (!normalizedURL || normalizedURL === 'about:blank' || !normalizedURL.startsWith('http')) {
-            throw new Error(`Invalid URL for navigation: ${normalizedURL}`);
+          if (!workingUrl || workingUrl === 'about:blank' || !workingUrl.startsWith('http')) {
+            throw new Error(`Invalid URL for navigation: ${workingUrl}`);
           }
           
-          console.log(`Attempting to navigate to: ${normalizedURL}`);
+          console.log(`Attempting to navigate to: ${workingUrl}`);
           
           // Navigate with response monitoring
-          const response = await page.goto(normalizedURL, strategy);
+          const response = await page.goto(workingUrl, strategy);
           
           // Wait for redirects and dynamic content to load
           await new Promise(resolve => setTimeout(resolve, 5000));
           
-          // Enhanced content detection
           const finalUrl = page.url();
           const title = await page.title().catch(() => '');
           
@@ -384,7 +395,6 @@ async function processSingleSite(browser, url, siteQueues) {
           console.log(`Page title: ${title}`);
           console.log(`Content check:`, contentCheck);
           
-          // Enhanced success criteria
           const hasContent = contentCheck.bodyLength > 50 || 
                            contentCheck.hasVisibleElements || 
                            contentCheck.hasImages || 
@@ -440,13 +450,6 @@ async function processSingleSite(browser, url, siteQueues) {
       await page.bringToFront();
     }
 
-    // Apply bot mitigation
-    await applyBotMitigation(page, {
-      enableMouseMovement: true,
-      enableRandomScrolling: true,
-      enableRandomDelays: true,
-      logMitigation: true
-    });
 
     console.log('Setting up enhanced instrumentation...');
     instrumentationResult = await enhancedInstrumentPage(page, {
@@ -511,7 +514,6 @@ async function processSingleSite(browser, url, siteQueues) {
     const { frameTree } = await client.send('Page.getFrameTree');
     await captureFrameDOM(page, domQueue);
 
-    // Enhanced input interaction with generic detection, fresh tabs and detailed logging
     const interactionSummary = await enhancedInputInteraction(page, workingUrl, {
       instrumentPage,
       queues: { networkQueue, responseQueue, consoleQueue, domQueue, interactionQueue, functionTrackingQueue },

@@ -28,21 +28,91 @@ class FunctionTracker {
     try {
       // Inject the function tracking script into the page
       await this.page.evaluateOnNewDocument(() => {
-        // Initialize comprehensive function tracker
-        window.__functionTracker = {
-          callId: 0,
-          calls: [],
-          eventListeners: [],
-          functionToRequestMap: new Map(),
-          activeNetworkRequests: new Map(), // requestId -> {url, method, timestamp}
-          hijackedFunctions: new Set(), // Track what we've already hijacked
-          originalFunctions: new Map(), // Store original function references
-          variableCapture: {
-            maxDepth: 3, // How deep to serialize objects
-            maxArrayLength: 10, // Max array elements to capture
-            maxStringLength: 1000 // Max string length to capture
+        // Persistent storage functions
+        window.__saveTrackerData = function() {
+          try {
+            if (window.__functionTracker) {
+              const dataToSave = {
+                callId: window.__functionTracker.callId,
+                calls: window.__functionTracker.calls,
+                eventListeners: window.__functionTracker.eventListeners,
+                timestamp: Date.now(),
+                url: window.location.href
+              };
+              sessionStorage.setItem('__functionTrackerBackup', JSON.stringify(dataToSave));
+            }
+          } catch (e) {
+            console.warn('Failed to save tracker data:', e.message);
           }
         };
+
+        window.__loadTrackerData = function() {
+          try {
+            const saved = sessionStorage.getItem('__functionTrackerBackup');
+            if (saved) {
+              const data = JSON.parse(saved);
+              return {
+                callId: data.callId || 0,
+                calls: data.calls || [],
+                eventListeners: data.eventListeners || []
+              };
+            }
+          } catch (e) {
+            console.warn('Failed to load tracker data:', e.message);
+          }
+          return { callId: 0, calls: [], eventListeners: [] };
+        };
+
+        // Persistent tracker initialization function
+        window.__initializeTracker = function() {
+          // Load previous data if available
+          const previousData = window.__loadTrackerData();
+          
+          // Initialize comprehensive function tracker
+          window.__functionTracker = {
+            callId: previousData.callId,
+            calls: previousData.calls,
+            eventListeners: previousData.eventListeners,
+            functionToRequestMap: new Map(),
+            activeNetworkRequests: new Map(), // requestId -> {url, method, timestamp}
+            hijackedFunctions: new Set(), // Track what we've already hijacked
+            originalFunctions: new Map(), // Store original function references
+            variableCapture: {
+              maxDepth: 3, // How deep to serialize objects
+              maxArrayLength: 10, // Max array elements to capture
+              maxStringLength: 1000 // Max string length to capture
+            }
+          };
+          
+          console.log(`Tracker initialized with ${previousData.calls.length} previous calls`);
+        };
+
+        // Initialize tracker immediately
+        window.__initializeTracker();
+
+        // Auto-save tracker data every 2 seconds
+        setInterval(() => {
+          window.__saveTrackerData();
+          if (!window.__functionTracker) {
+            console.warn('Function tracker was cleared, re-initializing...');
+            window.__initializeTracker();
+          }
+        }, 2000);
+
+        // Re-initialize on page visibility change (handles tab switching)
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'hidden') {
+            window.__saveTrackerData(); // Save before tab switch
+          } else if (!window.__functionTracker && document.visibilityState === 'visible') {
+            console.warn('Function tracker missing on visibility change, re-initializing...');
+            window.__initializeTracker();
+          }
+        });
+
+        // Save data before page unload
+        window.addEventListener('beforeunload', () => {
+          window.__saveTrackerData();
+        });
 
         // Helper function to get stack trace
         window.__getStackTrace = function() {
@@ -693,9 +763,12 @@ class FunctionTracker {
     const collectData = async () => {
       try {
         const trackingData = await this.page.evaluate(() => {
+          if (!window.__functionTracker) {
+            return { functionCalls: [], eventListeners: [], timestamp: Date.now(), url: window.location.href };
+          }
           const data = {
-            functionCalls: window.__functionTracker.calls.splice(0),
-            eventListeners: window.__functionTracker.eventListeners.splice(0),
+            functionCalls: (window.__functionTracker.calls || []).splice(0),
+            eventListeners: (window.__functionTracker.eventListeners || []).splice(0),
             timestamp: Date.now(),
             url: window.location.href
           };
@@ -779,11 +852,21 @@ class FunctionTracker {
   async getTrackingReport() {
     try {
       const finalData = await this.page.evaluate(() => {
+        if (!window.__functionTracker) {
+          return {
+            functionCalls: [],
+            eventListeners: [],
+            trackedFunctions: [],
+            totalCalls: 0,
+            url: window.location.href,
+            timestamp: Date.now()
+          };
+        }
         return {
-          functionCalls: window.__functionTracker.calls,
-          eventListeners: window.__functionTracker.eventListeners,
-          trackedFunctions: Array.from(window.__functionTracker.originalFunctions.keys()),
-          totalCalls: window.__functionTracker.callId,
+          functionCalls: window.__functionTracker.calls || [],
+          eventListeners: window.__functionTracker.eventListeners || [],
+          trackedFunctions: Array.from((window.__functionTracker.originalFunctions || new Map()).keys()),
+          totalCalls: window.__functionTracker.callId || 0,
           url: window.location.href,
           timestamp: Date.now()
         };

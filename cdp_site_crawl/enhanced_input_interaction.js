@@ -115,7 +115,6 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
         // Stop tracking requests
         freshTab.off('request', requestListener);
 
-        // Enhanced logging with detection source information
         const interactionLog = {
           elementInfo: element,
           inputValue: testInputs[interactionCount % testInputs.length],
@@ -131,7 +130,6 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
         interactions.push(interactionLog);
         networkRequests.push(...interactionNetworkRequests);
         
-        // Enhanced logging to interaction queue
         if (queues.interactionQueue) {
           queues.interactionQueue.enqueue({
             event: 'inputInteraction',
@@ -319,6 +317,9 @@ async function findAllInputElements(page) {
 async function createFreshTab(browser, url, instrumentPage, queues) {
   const newTab = await browser.newPage();
   
+  // Apply bot mitigation BEFORE any other operations
+  await applyBotMitigation(newTab);
+  
   // Apply instrumentation if provided
   if (typeof instrumentPage === 'function') {
     try {
@@ -327,9 +328,6 @@ async function createFreshTab(browser, url, instrumentPage, queues) {
       console.warn('Instrumentation failed for fresh tab:', error.message);
     }
   }
-
-  // Apply bot mitigation to fresh tab
-  await applyBotMitigation(newTab);
 
   // Validate URL before navigation
   if (!url || typeof url !== 'string') {
@@ -727,6 +725,10 @@ async function fillRemainingFormFields(page, form) {
           await fillFieldByType(field, type);
         }
       } catch (fieldError) {
+        // Skip DOM protocol errors - these are expected when elements become detached
+        if (fieldError.message.includes('DOM.describeNode') || fieldError.message.includes('Cannot find context')) {
+          continue;
+        }
         console.warn(`Interaction failed: ${fieldError.message}`);
         continue;
       }

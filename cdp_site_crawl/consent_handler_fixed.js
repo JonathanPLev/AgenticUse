@@ -1,5 +1,4 @@
 // consent_handler_fixed.js
-// Enhanced consent banner handling with proper tab management and Consent-O-Matic integration
 
 const { applyBotMitigation, randomDelay } = require('./bot_mitigation_final_fix');
 
@@ -8,11 +7,13 @@ const { applyBotMitigation, randomDelay } = require('./bot_mitigation_final_fix'
  */
 async function isConsentOMaticActive(page) {
   return await page.evaluate(() => {
-    // Enhanced Consent-O-Matic detection with more reliable indicators
     const indicators = [
-      // Global variables (most reliable)
+      // Chrome extension API (most reliable - extension is loaded)
+      () => !!(window.chrome && window.chrome.runtime),
+
+      // Global variables
       () => !!(window.ConsentOMaticCMP || window.ConsentOMatic || window.cmp),
-      
+
       // DOM elements with Consent-O-Matic markers
       () => !!(document.querySelector('[data-consent-o-matic]') ||
                document.querySelector('.ConsentOMatic') ||
@@ -26,18 +27,35 @@ async function isConsentOMaticActive(page) {
       () => !!(document.documentElement.classList.contains('consent-scrollbehaviour-override') ||
                document.body?.classList.contains('consent-scrollbehaviour-override')),
       
-      // Chrome extension API availability with extension ID check
+      // Extension processed markers
+      () => !!(document.documentElement.hasAttribute('data-consent-o-matic-processed') ||
+               document.head.querySelector('meta[name="consent-o-matic"]')),
+      
+      // Absence of visible cookie banners (indirect indicator)
       () => {
-        if (window.chrome && window.chrome.runtime) {
+        const bannerSelectors = [
+          '[id*="cookie" i]', '[class*="cookie" i]',
+          '[id*="consent" i]', '[class*="consent" i]',
+          '[id*="gdpr" i]', '[class*="gdpr" i]'
+        ];
+        
+        let visibleBanners = 0;
+        bannerSelectors.forEach(selector => {
           try {
-            // Try to detect extension by checking for extension-specific behavior
-            return document.documentElement.hasAttribute('data-consent-o-matic-processed') ||
-                   document.head.querySelector('meta[name="consent-o-matic"]') !== null;
-          } catch (e) {
-            return true; // Extension API available
-          }
-        }
-        return false;
+            const elements = document.querySelectorAll(selector);
+            elements.forEach(el => {
+              const rect = el.getBoundingClientRect();
+              const style = window.getComputedStyle(el);
+              if (rect.width > 0 && rect.height > 0 && 
+                  style.visibility !== 'hidden' && style.display !== 'none') {
+                visibleBanners++;
+              }
+            });
+          } catch (e) {}
+        });
+        
+        // If no visible banners found, extension likely worked
+        return visibleBanners === 0;
       },
       
       // Extension scripts in DOM (enhanced detection)
@@ -69,22 +87,27 @@ async function isConsentOMaticActive(page) {
       }
     ];
     
-    let activeCount = 0;
-    const results = indicators.map(indicator => {
+    const activeIndicators = indicators.filter(indicator => {
       try {
-        const result = indicator();
-        if (result) activeCount++;
-        return result;
+        return indicator();
       } catch (e) {
         return false;
       }
     });
-    
+
     return {
-      active: activeCount > 0,
-      indicatorCount: activeCount,
-      totalChecks: indicators.length,
-      results: results
+      anyActive: activeIndicators.length > 0,
+      activeCount: activeIndicators.length,
+      totalIndicators: indicators.length,
+      // Consider extension active if Chrome API available OR no visible banners
+      extensionWorking: activeIndicators.length >= 1,
+      details: indicators.map((indicator, index) => {
+        try {
+          return { index, result: indicator() };
+        } catch (e) {
+          return { index, result: false, error: e.message };
+        }
+      })
     };
   });
 }
@@ -182,25 +205,28 @@ async function handleConsentBanners(page, browser) {
     await randomDelay(2000, 4000);
 
     // Check if Consent-O-Matic extension is active
-    const consentOMaticActive = await isConsentOMaticActive(page);
-
-    if (consentOMaticActive.active) {
-      console.log(`Consent-O-Matic detected (${consentOMaticActive.indicatorCount}/${consentOMaticActive.totalChecks} indicators)`);
-      
-      // Wait longer for Consent-O-Matic to work, then check if banners remain
-      await randomDelay(3000, 5000);
-      const remainingBanners = await checkForRemainingConsentBanners(page);
-      
-      if (remainingBanners.length > 0) {
-        console.log(`Consent-O-Matic detected but ${remainingBanners.length} banners still visible, applying manual handling...`);
-        await manualConsentHandling(page);
-      } else {
-        console.log('Consent-O-Matic successfully handled consent banners');
-      }
+    const consentOMaticResult = await isConsentOMaticActive(page);
+  
+  if (consentOMaticResult.extensionWorking) {
+    console.log(`Consent-O-Matic active (${consentOMaticResult.activeCount}/${consentOMaticResult.totalIndicators} indicators)`);
+    
+    // Wait a bit longer for Consent-O-Matic to process
+    await randomDelay(3000, 5000);
+    
+    // Check if there are still visible consent banners
+    const remainingBanners = await checkForRemainingConsentBanners(page);
+    
+    if (remainingBanners.visibleBanners.length === 0) {
+      console.log('Consent-O-Matic successfully handled consent banners');
+      return page;
     } else {
-      console.log('Consent-O-Matic not detected, trying manual consent handling...');
+      console.log(`Consent-O-Matic active but ${remainingBanners.visibleBanners.length} banners still visible, applying manual handling...`);
       await manualConsentHandling(page);
     }
+  } else {
+    console.log('Consent-O-Matic not detected, trying manual consent handling...');
+    await manualConsentHandling(page);
+  }
 
     // Additional wait for any remaining consent processing
     await randomDelay(1000, 2000);
@@ -247,7 +273,6 @@ async function manualConsentHandling(page) {
       'button[id*="accept" i]',
       'button[class*="accept" i]',
       'button[data-testid*="accept" i]',
-      // Note: :contains is not supported by querySelectorAll; using text-based fallback below instead
       
       // Common cookie banner classes/IDs
       '#cookie-accept',

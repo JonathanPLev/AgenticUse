@@ -139,6 +139,10 @@ async function interactWithAllForms(page, originalUrl, opts = {}) {
         await submitFork(form);
 
       } catch (e) {
+        // Skip DOM protocol errors - these are expected when elements become detached
+        if (e.message.includes('DOM.describeNode') || e.message.includes('Cannot find context')) {
+          continue;
+        }
         console.warn(`field #${i+1} error:`, e.message);
       }
     }
