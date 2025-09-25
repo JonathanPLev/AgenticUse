@@ -191,14 +191,30 @@ async function handleConsentBanners(page, browser) {
       }
     }
     
-    // Ensure we're on the main page
-    if (page.isClosed() || page.url() !== mainPageUrl) {
-      const pages = await browser.pages();
-      const targetPage = pages.find(p => p.url() === mainPageUrl);
-      if (targetPage) {
-        page = targetPage;
-        await page.bringToFront();
-      }
+    // Ensure we're on the main page and it's active
+    await randomDelay(500, 1000); // Wait for tab closure to complete
+    
+    const currentPages = await browser.pages();
+    let targetPage = currentPages.find(p => !p.isClosed() && p.url() === mainPageUrl);
+    
+    if (!targetPage) {
+      // If main page not found, find any page with the target domain
+      const targetDomain = new URL(mainPageUrl).hostname;
+      targetPage = currentPages.find(p => {
+        try {
+          return !p.isClosed() && new URL(p.url()).hostname === targetDomain;
+        } catch (e) {
+          return false;
+        }
+      });
+    }
+    
+    if (targetPage && !targetPage.isClosed()) {
+      page = targetPage;
+      await page.bringToFront();
+      console.log(`Switched to main page: ${page.url()}`);
+    } else {
+      console.warn(`Could not find main page with URL: ${mainPageUrl}`);
     }
 
     // Wait a moment for Consent-O-Matic to do its work
@@ -251,9 +267,16 @@ async function handleConsentBanners(page, browser) {
       }
     }
     
-    // Ensure main page is focused
-    if (!page.isClosed()) {
+    // Ensure main page is focused and return the correct page reference
+    const endPages = await browser.pages();
+    const mainPageFinal = endPages.find(p => !p.isClosed() && p.url() === mainPageUrl);
+    
+    if (mainPageFinal) {
+      page = mainPageFinal;
       await page.bringToFront();
+      console.log(`Final page focus: ${page.url()}`);
+    } else {
+      console.warn(`Main page lost during consent handling: ${mainPageUrl}`);
     }
 
   } catch (error) {
