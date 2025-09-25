@@ -56,7 +56,7 @@ async function interactWithAllForms(page, originalUrl, opts = {}) {
     let navResp = null, xhrResp = null;
     try {
       const submitBtn = await form.$('button[type=submit], input[type=submit]');
-      const navP = page.waitForNavigation({ waitUntil: ['domcontentloaded','networkidle2'], timeout: 15000 }).catch(() => null);
+      const navP = page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 8000 }).catch(() => null);
       const xhrP = page.waitForResponse(
         r => {
           const q = r.request();
@@ -86,8 +86,11 @@ async function interactWithAllForms(page, originalUrl, opts = {}) {
       } catch {}
     }
 
-    const subTab = await openInstrumentedTab(resolveOpenUrl({ navResp, xhrResp }));
-    if (closeSubmissionTabs) { try { await subTab.close(); } catch {} }
+    // Skip opening submission tab if we're just going to close it immediately
+    if (!closeSubmissionTabs) {
+      const subTab = await openInstrumentedTab(resolveOpenUrl({ navResp, xhrResp }));
+    }
+    // If closeSubmissionTabs is true, skip the tab creation entirely to avoid hanging
 
     if (!page.isClosed() && page.url() !== startUrl) {
       try { await page.goto(startUrl, { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch {}

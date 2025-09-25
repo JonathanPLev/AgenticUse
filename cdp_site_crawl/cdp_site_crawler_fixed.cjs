@@ -1,12 +1,4 @@
 // cdp_site_crawler_fixed.cjs
-// Production-ready web crawler with enhanced fixes for all identified issues:
-// 1. Fixed webdriver property redefinition errors
-// 2. Proper tab management and Consent-O-Matic handling
-// 3. Enhanced site detection for redirecting sites like x.com
-// 4. Better frame navigation handling
-// 5. Improved function name recording in debug logs
-// 6. Comprehensive error handling and recovery
-// TODO: fix consent o matic handling
 const fs = require('fs');
 const path = require('path');
 const csv = require('csv-parser');
@@ -41,7 +33,6 @@ if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR);
 
 const { normalizeUrl, DataQueue, scrollWithPauses, captureFrameDOM, captureAllFrames} = require('./helpers.js')
 
-// Function to check if a crawl is complete based on folder size and file contents
 function isCrawlComplete(urlDir) {
   if (!fs.existsSync(urlDir)) {
     return false;
@@ -52,7 +43,6 @@ function isCrawlComplete(urlDir) {
     let totalSize = 0;
     let hasRequiredFiles = false;
     
-    // Check for required files and calculate total size
     const requiredFiles = ['network.log', 'dom.log', 'console.log'];
     let foundRequiredFiles = 0;
     
@@ -65,11 +55,7 @@ function isCrawlComplete(urlDir) {
         foundRequiredFiles++;
       }
     }
-    
-    // Consider crawl complete if:
-    // 1. Total folder size > 5KB (indicates some data was collected)
-    // 2. At least 2 of the 3 required files exist with content
-    // 3. No error.log exists, or if it exists, it's small (< 1KB)
+
     const hasErrorLog = files.includes('error.log');
     const errorLogSize = hasErrorLog ? fs.statSync(path.join(urlDir, 'error.log')).size : 0;
     
@@ -175,10 +161,7 @@ const allQueues = [];
               '--disable-renderer-backgrounding',
               `--disable-extensions-except=${extensionDir}`,
               `--load-extension=${extensionDir}`,
-              '--disable-popup-blocking',
-              '--disable-default-apps',
-              '--disable-extensions-ui-warnings',
-              '--disable-extension-welcome-pages'
+
             ],
             userDataDir: profilePath,
             dumpio: false  // Disable verbose logging to reduce noise
