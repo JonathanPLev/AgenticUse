@@ -429,6 +429,16 @@ async function processSingleSite(browser, url, siteQueues) {
         throw new Error(`All navigation strategies failed for ${url} - site may be inaccessible or require special handling`);
       }
       
+      // Apply bot mitigation AFTER successful navigation
+      console.log('Applying bot mitigation after navigation...');
+      await applyBotMitigation(page, {
+        enableMouseMovement: true,
+        enableRandomScrolling: true,
+        enableRandomDelays: true,
+        logMitigation: true
+      });
+      console.log('Bot mitigation applied successfully');
+      
     } catch (error) {
       console.error(`Navigation failed for ${url}: ${error.message}`);
       throw error;
@@ -437,16 +447,6 @@ async function processSingleSite(browser, url, siteQueues) {
     console.log('Handling consent banners with Consent-O-Matic...');
     page = await handleConsentBanners(page, browser);
     console.log('Consent handling completed');
-    
-    // Apply bot mitigation AFTER consent handling to ensure we're on the correct page
-    console.log('Applying bot mitigation on final page...');
-    await applyBotMitigation(page, {
-      enableMouseMovement: true,
-      enableRandomScrolling: true,
-      enableRandomDelays: true,
-      logMitigation: true
-    });
-    console.log('Bot mitigation applied successfully');
     
     // Ensure we're still on the right page after consent handling
     if (page.isClosed()) {
