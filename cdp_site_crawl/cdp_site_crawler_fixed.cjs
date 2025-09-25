@@ -321,15 +321,6 @@ async function processSingleSite(browser, url, siteQueues) {
     // Set realistic headers and user agent
     await setRealisticHeaders(page);
 
-    console.log('Applying bot mitigation before navigation...');
-    await applyBotMitigation(page, {
-      enableMouseMovement: true,
-      enableRandomScrolling: true,
-      enableRandomDelays: true,
-      logMitigation: true
-    });
-    console.log('Bot mitigation applied successfully');
-
     // Navigation with multiple strategies
     console.log(`Navigating to ${url}`);
     let workingUrl = url;
@@ -430,6 +421,16 @@ async function processSingleSite(browser, url, siteQueues) {
       if (!navigationSuccess) {
         throw new Error(`All navigation strategies failed for ${url} - site may be inaccessible or require special handling`);
       }
+      
+      // Apply bot mitigation AFTER successful navigation
+      console.log('Applying bot mitigation after navigation...');
+      await applyBotMitigation(page, {
+        enableMouseMovement: true,
+        enableRandomScrolling: true,
+        enableRandomDelays: true,
+        logMitigation: true
+      });
+      console.log('Bot mitigation applied successfully');
       
     } catch (error) {
       console.error(`Navigation failed for ${url}: ${error.message}`);
