@@ -17,8 +17,8 @@ const LOG_FILES_TO_REMOVE = [
 // Get data directory path from command line or use default
 const dataDir = process.argv[2] || path.join(__dirname, 'data');
 
-console.log(`🧹 Starting log cleanup in: ${dataDir}`);
-console.log(`📋 Files to remove: ${LOG_FILES_TO_REMOVE.join(', ')}`);
+console.log('Starting log cleanup...'); 
+console.log(`Files to remove: ${LOG_FILES_TO_REMOVE.join(', ')}`);
 
 let totalFilesRemoved = 0;
 let totalSpaceFreed = 0;
@@ -42,13 +42,13 @@ function cleanupDirectory(dirPath) {
             return fs.statSync(fullPath).isDirectory();
         });
 
-        console.log(`\n📁 Found ${subdirs.length} site directories to process`);
+        console.log(`Found ${subdirs.length} directories to check`);
 
         for (const subdir of subdirs) {
             const subdirPath = path.join(dirPath, subdir);
             directoriesProcessed++;
             
-            console.log(`\n🔍 Processing: ${subdir}`);
+            console.log(`\nProcessing: ${subdir}`);
             
             let dirFilesRemoved = 0;
             let dirSpaceFreed = 0;
@@ -63,7 +63,7 @@ function cleanupDirectory(dirPath) {
                         
                         fs.unlinkSync(logFilePath);
                         
-                        console.log(`  ✅ Removed ${logFile} (${formatBytes(fileSize)})`);
+                        console.log(`  Keeping ${logFile} (${(stats.size / 1024).toFixed(1)}KB)`);
                         
                         totalFilesRemoved++;
                         dirFilesRemoved++;
@@ -71,22 +71,22 @@ function cleanupDirectory(dirPath) {
                         dirSpaceFreed += fileSize;
                         
                     } catch (error) {
-                        console.log(`  ❌ Failed to remove ${logFile}: ${error.message}`);
+                        console.warn(`  Could not delete ${logFile}: ${error.message}`);
                     }
                 } else {
-                    console.log(`  ⏭️  ${logFile} not found (skipping)`);
+                    console.log(`  ${logFile} not found (skipping)`);
                 }
             }
             
             if (dirFilesRemoved > 0) {
-                console.log(`  📊 Directory summary: ${dirFilesRemoved} files, ${formatBytes(dirSpaceFreed)} freed`);
+                console.log(`  Directory summary: ${dirFilesRemoved} files, ${formatBytes(dirSpaceFreed)} freed`);
             } else {
-                console.log(`  📊 No log files found to remove`);
+                console.log(`  No log files found to remove`);
             }
         }
 
     } catch (error) {
-        console.error(`❌ Error processing directory ${dirPath}: ${error.message}`);
+        console.warn(`Could not process directory ${dirPath}: ${error.message}`);
         process.exit(1);
     }
 }
@@ -95,14 +95,14 @@ function cleanupDirectory(dirPath) {
 function main() {
     // Check if data directory exists
     if (!fs.existsSync(dataDir)) {
-        console.error(`❌ Data directory not found: ${dataDir}`);
-        console.log(`💡 Usage: node cleanup_logs.js [data_directory_path]`);
+        console.error(`Data directory not found: ${dataDir}`);
+        console.log(`Usage: node cleanup_logs.js [data_directory_path]`);
         process.exit(1);
     }
 
     // Check if it's actually a directory
     if (!fs.statSync(dataDir).isDirectory()) {
-        console.error(`❌ Path is not a directory: ${dataDir}`);
+        console.error(`Path is not a directory: ${dataDir}`);
         process.exit(1);
     }
 
@@ -115,15 +115,15 @@ function main() {
     const duration = (endTime - startTime) / 1000;
 
     // Final summary
-    console.log(`\n🎉 Cleanup completed!`);
-    console.log(`📊 Final Summary:`);
-    console.log(`   • Directories processed: ${directoriesProcessed}`);
-    console.log(`   • Files removed: ${totalFilesRemoved}`);
-    console.log(`   • Space freed: ${formatBytes(totalSpaceFreed)}`);
+    console.log(`\nCleanup completed!`);
+    console.log(`\nCleanup Summary:`);
+    console.log(`Directories processed: ${directoriesProcessed}`);
+    console.log(`Files deleted: ${totalFilesRemoved}`);
+    console.log(`Space freed: ${(totalSpaceFreed / (1024 * 1024)).toFixed(2)}MB`);
     console.log(`   • Time taken: ${duration.toFixed(2)} seconds`);
     
     if (totalFilesRemoved === 0) {
-        console.log(`\n💡 No log files were found to remove. This could mean:`);
+        console.log(`\nNo log files were found to remove. This could mean:`);
         console.log(`   • The directories are already clean`);
         console.log(`   • The log files have different names`);
         console.log(`   • The directory structure is different than expected`);

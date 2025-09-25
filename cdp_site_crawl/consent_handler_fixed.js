@@ -16,9 +16,15 @@ async function isConsentOMaticActive(page) {
       // DOM elements with Consent-O-Matic markers
       () => !!(document.querySelector('[data-consent-o-matic]') ||
                document.querySelector('.ConsentOMatic') ||
+               document.querySelector('.ConsentOMatic-Progress-Dialog-Modal') ||
+               document.querySelector('.ConsentOMatic-CMP-Hider') ||
                document.querySelector('[data-cmp-ab]') ||
                document.querySelector('[id*="consent-o-matic" i]') ||
                document.querySelector('[class*="consent-o-matic" i]')),
+
+      // Scroll behaviour override classes injected by Consent-O-Matic
+      () => !!(document.documentElement.classList.contains('consent-scrollbehaviour-override') ||
+               document.body?.classList.contains('consent-scrollbehaviour-override')),
       
       // Chrome extension API availability with extension ID check
       () => {
@@ -241,14 +247,7 @@ async function manualConsentHandling(page) {
       'button[id*="accept" i]',
       'button[class*="accept" i]',
       'button[data-testid*="accept" i]',
-      'button:contains("Accept All")',
-      'button:contains("Accept all")',
-      'button:contains("Accept")',
-      'button:contains("OK")',
-      'button:contains("I Agree")',
-      'button:contains("Agree")',
-      'button:contains("Allow All")',
-      'button:contains("Continue")',
+      // Note: :contains is not supported by querySelectorAll; using text-based fallback below instead
       
       // Common cookie banner classes/IDs
       '#cookie-accept',
@@ -300,6 +299,52 @@ async function manualConsentHandling(page) {
       } catch (e) {
         // Continue to next selector
         continue;
+      }
+    }
+
+    // Text-based fallback if CSS selector approach failed
+    if (!consentHandled) {
+      try {
+        const clicked = await page.evaluate(() => {
+          const patterns = [
+            /accept all/i,
+            /accept/i,
+            /agree/i,
+            /allow all/i,
+            /allow/i,
+            /ok/i,
+            /continue/i,
+            /got it/i,
+            /i agree/i,
+            /consent/i
+          ];
+          function isVisible(el) {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+          }
+          const candidates = Array.from(document.querySelectorAll('button, a, [role="button"], [class*="button" i]'));
+          for (const el of candidates) {
+            try {
+              const text = (el.innerText || el.textContent || '').trim();
+              if (!text) continue;
+              if (isVisible(el) && patterns.some(p => p.test(text))) {
+                el.click();
+                return { text, tag: el.tagName };
+              }
+            } catch (e) {
+              // ignore
+            }
+          }
+          return null;
+        });
+        if (clicked) {
+          console.log(`Clicked consent by text: ${clicked.text}`);
+          consentHandled = true;
+          await randomDelay(500, 1000);
+        }
+      } catch (e) {
+        console.warn('Text-based consent fallback error:', e.message);
       }
     }
 

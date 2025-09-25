@@ -9,18 +9,18 @@ const fs = require('fs');
 puppeteer.use(StealthPlugin());
 
 async function verifyConsentOMatic() {
-  console.log('🔍 Verifying Consent-O-Matic Extension...\n');
+  console.log('Verifying Consent-O-Matic Extension...\n');
 
-  const extensionDir = path.join(__dirname, 'Consent_O_Matic', 'build');
+  const extensionDir = path.resolve(__dirname, '..', '..', 'Consent_O_Matic', 'build');
   
   // Check if extension exists
   if (!fs.existsSync(path.join(extensionDir, 'manifest.json'))) {
-    console.error('❌ Consent-O-Matic extension not found!');
+    console.error('Consent-O-Matic extension not found!');
     console.log('Expected location:', extensionDir);
     return false;
   }
 
-  console.log('✅ Extension files found at:', extensionDir);
+  console.log('Extension files found at:', extensionDir);
 
   // Read manifest to verify extension
   const manifest = JSON.parse(fs.readFileSync(path.join(extensionDir, 'manifest.json'), 'utf8'));
@@ -49,7 +49,7 @@ async function verifyConsentOMatic() {
 
   try {
     // Wait for browser to initialize
-    console.log('🚀 Launching browser with extension...');
+    console.log('Launching browser with extension...');
     await new Promise(resolve => setTimeout(resolve, 3000));
 
     // Test on a site with known cookie banners
@@ -60,7 +60,7 @@ async function verifyConsentOMatic() {
     ];
 
     for (const testUrl of testSites) {
-      console.log(`\n🌐 Testing on: ${testUrl}`);
+      console.log(`\nTesting on: ${testUrl}`);
       
       // Create a fresh page for each test to avoid frame detachment issues
       let page = null;
@@ -121,45 +121,45 @@ async function verifyConsentOMatic() {
           };
         });
         
-        console.log(`🔍 Extension detection results:`);
-        console.log(`   Extension active: ${extensionActive.anyActive ? '✅ YES' : '❌ NO'}`);
+        console.log(`Extension detection results:`);
+        console.log(`   Extension active: ${extensionActive.anyActive ? 'YES' : 'NO'}`);
         console.log(`   Chrome API: ${extensionActive.extensions}`);
         
         if (extensionActive.anyActive) {
-          console.log('✅ Consent-O-Matic appears to be working!');
+          console.log('Consent-O-Matic appears to be working!');
         } else {
-          console.log('⚠️  Extension not detected on this site');
+          console.log('Extension not detected on this site');
           console.log('   Detection method results:', extensionActive.results);
         }
         
       } catch (error) {
-        console.error(`❌ Error testing ${testUrl}:`, error.message);
+        console.error(`Error testing ${testUrl}:`, error.message);
       } finally {
         // Always close the page to prevent frame detachment issues
         if (page && !page.isClosed()) {
           try {
             await page.close();
           } catch (e) {
-            console.warn(`⚠️  Could not close page: ${e.message}`);
+            console.warn(`Could not close page: ${e.message}`);
           }
         }
       }
     }
 
     // Test extension permissions and content script injection
-    console.log('\n🔧 Testing extension permissions...');
+    console.log('\nTesting extension permissions...');
     
     try {
       const extensionPages = await browser.pages();
-      console.log(`📄 Total pages open: ${extensionPages.length}`);
+      console.log(`Total pages open: ${extensionPages.length}`);
       
       // Check if extension background page exists
       const targets = await browser.targets();
       const extensionTargets = targets.filter(target => target.type() === 'background_page');
-      console.log(`🔌 Extension background pages: ${extensionTargets.length}`);
+      console.log(`Extension background pages: ${extensionTargets.length}`);
       
       if (extensionTargets.length > 0) {
-        console.log('✅ Extension background page detected - extension is loaded!');
+        console.log('Extension background page detected - extension is loaded!');
         
         // Try to get more info about the extension
         for (const target of extensionTargets) {
@@ -174,20 +174,20 @@ async function verifyConsentOMatic() {
           }
         }
       } else {
-        console.log('⚠️  No extension background page found');
+        console.log('No extension background page found');
       }
     } catch (error) {
-      console.error(`❌ Error checking extension permissions:`, error.message);
+      console.error(`Error checking extension permissions:`, error.message);
     }
     
   } catch (error) {
-    console.error('❌ Verification failed:', error.message);
+    console.error('Verification failed:', error.message);
     return false;
   } finally {
     await browser.close();
   }
 
-  console.log('\n📊 Consent-O-Matic verification completed');
+  console.log('\nConsent-O-Matic verification completed');
   return true;
 }
 
@@ -195,9 +195,9 @@ async function verifyConsentOMatic() {
 if (require.main === module) {
   verifyConsentOMatic().then(success => {
     if (success) {
-      console.log('\n🎉 Consent-O-Matic verification successful!');
+      console.log('\nConsent-O-Matic verification successful!');
     } else {
-      console.log('\n❌ Consent-O-Matic verification failed!');
+      console.log('\nConsent-O-Matic verification failed!');
       process.exit(1);
     }
   }).catch(console.error);

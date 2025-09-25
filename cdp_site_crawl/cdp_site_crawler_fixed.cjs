@@ -170,7 +170,6 @@ const allQueues = [];
               '--disable-accelerated-2d-canvas',
               '--no-first-run',
               '--no-zygote',
-              '--single-process',
               '--disable-gpu',
               '--disable-web-security',
               '--disable-features=VizDisplayCompositor',
@@ -234,12 +233,12 @@ const allQueues = [];
               try {
                 // Recursively delete the profile directory
                 fs.rmSync(profilePath, { recursive: true, force: true });
-                console.log(`🗑️  Deleted temporary profile: profile_${i}_*`);
+                console.log(`Deleted temporary profile: profile_${i}_*`);
               } catch (cleanupErr) {
-                console.warn(`⚠️  Could not delete profile ${profilePath}: ${cleanupErr.message}`);
+                console.warn(`Could not delete profile ${profilePath}: ${cleanupErr.message}`);
               }
             } else if (shouldKeepProfile) {
-              console.log(`💾 Keeping milestone profile for site ${i + 1}: ${profilePath}`);
+              console.log(`Keeping milestone profile for site ${i + 1}: ${profilePath}`);
             }
           }
         } catch (err) {

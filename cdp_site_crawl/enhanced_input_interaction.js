@@ -31,7 +31,7 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     throw new Error(`Invalid or missing URL for enhanced input interaction: ${startUrl}`);
   }
   
-  console.log(`🔍 Starting enhanced input interaction for: ${startUrl}`);
+  console.log('Starting enhanced input interaction...'); 
 
   try {
     // Apply bot mitigation before any interactions
@@ -44,7 +44,7 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     try {
       genericDetection = await performGenericDetection(page);
     } catch (error) {
-      console.warn(`⚠️ Generic detection failed: ${error.message}`);
+      console.warn(`Failed to interact with element: ${error.message}`);
       genericDetection = null;
     }
     
@@ -56,13 +56,13 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     };
     
     console.log(`Generic detection results:`);
-    console.log(`Search elements: ${safeGenericDetection.searchElements.length}`);
+    console.log('Detecting search elements...'); 
     console.log(`Chatbots (main frame): ${safeGenericDetection.chatbots.length}`);
     console.log(`Chatbots (all frames): ${safeGenericDetection.iframeChatbots.length}`);
     
     // Find all interactive input elements (traditional method)
     const inputElements = await findAllInputElements(page);
-    console.log(`Found ${inputElements.length} input elements using traditional selectors`);
+    console.log(`Found ${inputElements.length} interactive elements`); 
     
     // Combine generic detection results with traditional input elements
     const allDetectedElements = [
@@ -123,7 +123,8 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
           error: interactionResult.error,
           networkRequests: interactionNetworkRequests,
           detectionSource: element.detectionSource || 'traditional_selector',
-          detectionMethod: element.detectionMethod || 'hardcoded_selector'
+          detectionMethod: element.detectionMethod || 'hardcoded_selector',
+          timestamp: Date.now()
         };
         
         interactions.push(interactionLog);
@@ -143,7 +144,9 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
           });
         }
 
-        console.log(`✅ Interaction ${interactionCount + 1}/${allDetectedElements.length} completed`);
+        console.log(`Attempting to interact with ${element.tagName}#${element.id || 'no-id'}`);
+
+        console.log(`Successfully interacted with ${element.tagName}#${element.id || 'no-id'}.${element.className || 'no-class'}`);
         
         // Close the fresh tab
         await freshTab.close();
@@ -154,17 +157,17 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
         await randomDelay(500, 2000);
 
       } catch (error) {
-        console.warn(`⚠️  Interaction ${interactionCount + 1} failed:`, error.message);
+        console.warn(`Interaction failed: ${error.message}`);
         
         // Handle protocol errors - stop further interactions to prevent cascade failures
         if (error.message.includes('Protocol error') || error.message.includes('Connection closed')) {
-          console.warn(`🚨 Protocol error detected, stopping further interactions to prevent cascade failures`);
+          console.warn(`Protocol error detected, stopping further interactions to prevent cascade failures`);
           break; // Exit the interaction loop
         }
         
         // If it's a URL-related error, try to continue with the original page instead of fresh tabs
         if (error.message.includes('Invalid parameters') || error.message.includes('url') || error.message.includes('navigate')) {
-          console.log(`🔄 URL error detected, switching to original page interaction mode...`);
+          console.log(`URL error detected, switching to original page interaction mode...`);
           try {
             // Perform interaction on original page instead
             const interactionResult = await performSingleInteraction(
@@ -187,10 +190,10 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
             };
             
             interactions.push(interactionLog);
-            console.log(`✅ Fallback interaction ${interactionCount + 1} completed on original page`);
+            console.log(`Fallback interaction ${interactionCount + 1} completed on original page`);
             
           } catch (fallbackError) {
-            console.warn(`⚠️  Fallback interaction also failed:`, fallbackError.message);
+            console.warn(`Fallback interaction also failed: ${fallbackError.message}`);
           }
         }
         
@@ -212,12 +215,12 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
       genericDetectionResults: safeGenericDetection
     };
 
-    console.log(`📊 Interaction Summary: ${interactionCount} interactions, ${networkRequests.length} network requests`);
+    console.log(`Interaction summary: ${summary.totalInteractions} interactions, ${summary.totalNetworkRequests} network requests`);
     
     return summary;
 
   } catch (error) {
-    console.error('❌ Enhanced input interaction failed:', error.message);
+    console.error('Enhanced input interaction failed:', error.message);
     throw error;
   }
 }
@@ -320,7 +323,7 @@ async function createFreshTab(browser, url, instrumentPage, queues) {
     try {
       await instrumentPage(newTab, queues);
     } catch (error) {
-      console.warn('⚠️  Instrumentation failed for fresh tab:', error.message);
+      console.warn('Instrumentation failed for fresh tab:', error.message);
     }
   }
 
@@ -669,7 +672,7 @@ async function triggerSubmissionEvents(page, element) {
           if (submitButton) {
             await randomDelay(300, 700);
             await submitButton.click();
-            console.log(`✅ Form submitted via ${selector}`);
+            console.log(`Successfully clicked ${element.tagName}`);
             return { submitted: true, method: selector };
           }
         } catch (e) {
@@ -681,14 +684,14 @@ async function triggerSubmissionEvents(page, element) {
       await form.evaluate(f => {
         if (f.submit) f.submit();
       });
-      console.log('✅ Form submitted via form.submit()');
+      console.log('Form submitted via form.submit()');
       return { submitted: true, method: 'form.submit()' };
     }
 
     // Try pressing Enter key as fallback
     await randomDelay(200, 500);
     await element.press('Enter');
-    console.log('✅ Attempted submission via Enter key');
+    console.log('Attempted submission via Enter key');
     return { submitted: true, method: 'Enter key' };
     
   } catch (error) {
@@ -723,7 +726,7 @@ async function fillRemainingFormFields(page, form) {
           await fillFieldByType(field, type);
         }
       } catch (fieldError) {
-        console.warn(`Field interaction failed: ${fieldError.message}`);
+        console.warn(`Interaction failed: ${fieldError.message}`);
         continue;
       }
     }
