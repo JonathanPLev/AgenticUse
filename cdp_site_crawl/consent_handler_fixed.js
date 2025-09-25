@@ -216,11 +216,12 @@ async function handleConsentBanners(page, browser) {
     // Check if there are still visible consent banners
     const remainingBanners = await checkForRemainingConsentBanners(page);
     
-    if (remainingBanners.visibleBanners.length === 0) {
+    if (remainingBanners && remainingBanners.length === 0) {
       console.log('Consent-O-Matic successfully handled consent banners');
       return page;
     } else {
-      console.log(`Consent-O-Matic active but ${remainingBanners.visibleBanners.length} banners still visible, applying manual handling...`);
+      const bannerCount = remainingBanners ? remainingBanners.length : 0;
+      console.log(`Consent-O-Matic active but ${bannerCount} banners still visible, applying manual handling...`);
       await manualConsentHandling(page);
     }
   } else {
