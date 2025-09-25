@@ -98,19 +98,25 @@ async function applyBotMitigation(page, options = {}) {
       });
     });
 
-    // 5. Human-like mouse movements with proper viewport handling
+    // 5. Human-like mouse movements with timeout
     if (enableMouseMovement) {
       try {
-        await simulateHumanMouseMovement(page);
+        await Promise.race([
+          simulateHumanMouseMovement(page),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Mouse movement timeout')), 5000))
+        ]);
       } catch (error) {
         console.warn('Mouse movement simulation failed:', error.message);
       }
     }
 
-    // 6. Human-like scrolling
+    // 6. Human-like scrolling with timeout
     if (enableRandomScrolling) {
       try {
-        await simulateHumanScrolling(page);
+        await Promise.race([
+          simulateHumanScrolling(page),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Scrolling timeout')), 3000))
+        ]);
       } catch (error) {
         console.warn('Scrolling simulation failed:', error.message);
       }
@@ -224,33 +230,40 @@ async function simulateRandomClicks(page) {
           .then(() => { navigationOccurred = true; })
           .catch(() => {}); // Ignore timeout - no navigation is good
 
-        // Perform the click
-        await page.mouse.click(element.x, element.y);
+        // Perform the click with timeout
+        await Promise.race([
+          page.mouse.click(element.x, element.y),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 2000))
+        ]);
         
-        // Wait a bit to see if navigation occurs
+        // Wait a bit to see if navigation occurs (reduced timeout)
         await Promise.race([
           navigationPromise,
-          new Promise(resolve => setTimeout(resolve, 1000))
+          new Promise(resolve => setTimeout(resolve, 500))
         ]);
 
         // If navigation occurred, go back to original page
         if (navigationOccurred || page.url() !== urlBeforeClick) {
           console.log(`Random click caused navigation from ${urlBeforeClick} to ${page.url()}, reverting...`);
           try {
-            await page.goBack({ waitUntil: 'domcontentloaded', timeout: 5000 });
+            // Add timeout to goBack operation
+            await Promise.race([
+              page.goBack({ waitUntil: 'domcontentloaded', timeout: 3000 }),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('goBack timeout')), 4000))
+            ]);
+            
             // If goBack doesn't work, navigate directly to original URL
             if (page.url() !== originalUrl) {
-              await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
+              await Promise.race([
+                page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 3000 }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('goto timeout')), 4000))
+              ]);
             }
             console.log(`Successfully reverted to ${originalUrl}`);
           } catch (revertError) {
             console.warn('Failed to revert navigation:', revertError.message);
-            // Try direct navigation as last resort
-            try {
-              await page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
-            } catch (directNavError) {
-              console.error('Failed to navigate back to original URL:', directNavError.message);
-            }
+            // Skip this element and continue - don't try more recovery
+            break;
           }
         }
         
