@@ -245,6 +245,9 @@ async function handleConsentBanners(page, browser) {
     await manualConsentHandling(page);
   }
 
+    // Handle ads and popups after consent
+    await handleAdsAndPopups(page);
+    
     // Additional wait for any remaining consent processing
     await randomDelay(1000, 2000);
     
@@ -427,10 +430,99 @@ async function waitForPageReady(page, timeout = 10000) {
   }
 }
 
+/**
+ * Handle ads, popups, and overlays that might interfere with crawling
+ */
+async function handleAdsAndPopups(page) {
+  try {
+    console.log('Checking for ads and popup overlays...');
+    
+    // Common ad/popup close selectors
+    const adCloseSelectors = [
+      // Close buttons
+      '[aria-label*="close" i]',
+      '[title*="close" i]',
+      'button[class*="close" i]',
+      '.close-button',
+      '.close-btn',
+      '.modal-close',
+      '.popup-close',
+      '.ad-close',
+      
+      // X buttons
+      'button:contains("×")',
+      'button:contains("✕")',
+      'span:contains("×")',
+      'div:contains("×")',
+      
+      // Skip/dismiss buttons
+      '[aria-label*="skip" i]',
+      'button[class*="skip" i]',
+      'button:contains("Skip")',
+      'button:contains("Skip Ad")',
+      'button:contains("Continue")',
+      'button:contains("No Thanks")',
+      
+      // Overlay backgrounds (clicking outside)
+      '.modal-backdrop',
+      '.overlay-background',
+      '.popup-backdrop'
+    ];
+
+    let adsClosed = 0;
+    
+    for (const selector of adCloseSelectors) {
+      try {
+        const elements = await page.$$(selector);
+        for (const element of elements) {
+          // Check if element is visible and clickable
+          const isVisible = await element.evaluate(el => {
+            const rect = el.getBoundingClientRect();
+            const style = window.getComputedStyle(el);
+            return rect.width > 0 && rect.height > 0 && 
+                   style.visibility !== 'hidden' && 
+                   style.display !== 'none' &&
+                   rect.top >= 0 && rect.left >= 0;
+          });
+
+          if (isVisible) {
+            await element.click();
+            console.log(`Closed ad/popup using selector: ${selector}`);
+            adsClosed++;
+            await randomDelay(500, 1000);
+            break; // Only click one element per selector
+          }
+        }
+      } catch (e) {
+        // Continue to next selector if this one fails
+        continue;
+      }
+    }
+
+    // Try to dismiss by pressing Escape key
+    try {
+      await page.keyboard.press('Escape');
+      await randomDelay(200, 500);
+    } catch (e) {
+      // Ignore escape key errors
+    }
+
+    if (adsClosed > 0) {
+      console.log(`Successfully closed ${adsClosed} ad(s)/popup(s)`);
+    } else {
+      console.log('No ads or popups detected');
+    }
+
+  } catch (error) {
+    console.warn('Ad/popup handling error:', error.message);
+  }
+}
+
 module.exports = {
   handleConsentBanners,
   waitForPageReady,
   isConsentOMaticActive,
   checkForRemainingConsentBanners,
-  manualConsentHandling
+  manualConsentHandling,
+  handleAdsAndPopups
 };
