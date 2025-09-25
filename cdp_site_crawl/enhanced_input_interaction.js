@@ -31,7 +31,7 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     throw new Error(`Invalid or missing URL for enhanced input interaction: ${startUrl}`);
   }
   
-  console.log('Starting enhanced input interaction...'); 
+  console.log(`Starting enhanced input interaction for: ${startUrl}`); 
 
   try {
     // Apply bot mitigation before any interactions
@@ -50,15 +50,16 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     
     // Provide safe defaults if generic detection failed
     const safeGenericDetection = {
-      searchElements: genericDetection?.searchElements || [],
-      chatbots: genericDetection?.chatbots || [],
-      iframeChatbots: genericDetection?.iframeChatbots || []
+      searchElements: Array.isArray(genericDetection?.searchElements) ? genericDetection.searchElements : [],
+      chatbots: Array.isArray(genericDetection?.chatbots) ? genericDetection.chatbots : [],
+      iframeChatbots: Array.isArray(genericDetection?.iframeChatbots) ? genericDetection.iframeChatbots : []
     };
     
     console.log(`Generic detection results:`);
     console.log('Detecting search elements...'); 
-    console.log(`Chatbots (main frame): ${safeGenericDetection.chatbots.length}`);
-    console.log(`Chatbots (all frames): ${safeGenericDetection.iframeChatbots.length}`);
+    console.log(`   Search elements: ${safeGenericDetection.searchElements.length}`);
+    console.log(`   Chatbots (main frame): ${safeGenericDetection.chatbots.length}`);
+    console.log(`   Chatbots (all frames): ${safeGenericDetection.iframeChatbots.length}`);
     
     // Find all interactive input elements (traditional method)
     const inputElements = await findAllInputElements(page);
@@ -66,10 +67,10 @@ async function enhancedInputInteraction(page, originalUrl, opts = {}) {
     
     // Combine generic detection results with traditional input elements
     const allDetectedElements = [
-      ...inputElements,
-      ...safeGenericDetection.searchElements.map(el => ({...el, detectionSource: 'generic_search'})),
-      ...safeGenericDetection.chatbots.filter(cb => cb.selector).map(cb => ({...cb, detectionSource: 'generic_chatbot'})),
-      ...safeGenericDetection.iframeChatbots.filter(cb => cb.selector).map(cb => ({...cb, detectionSource: 'iframe_chatbot'}))
+      ...(Array.isArray(inputElements) ? inputElements : []),
+      ...(Array.isArray(safeGenericDetection.searchElements) ? safeGenericDetection.searchElements.map(el => ({...el, detectionSource: 'generic_search'})) : []),
+      ...(Array.isArray(safeGenericDetection.chatbots) ? safeGenericDetection.chatbots.filter(cb => cb && cb.selector).map(cb => ({...cb, detectionSource: 'generic_chatbot'})) : []),
+      ...(Array.isArray(safeGenericDetection.iframeChatbots) ? safeGenericDetection.iframeChatbots.filter(cb => cb && cb.selector).map(cb => ({...cb, detectionSource: 'iframe_chatbot'})) : [])
     ];
     
     console.log(`Total elements to interact with: ${allDetectedElements.length}`);
