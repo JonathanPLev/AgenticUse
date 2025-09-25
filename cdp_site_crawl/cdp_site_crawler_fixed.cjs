@@ -187,16 +187,15 @@ const allQueues = [];
           // Wait for browser to fully initialize
           await new Promise(resolve => setTimeout(resolve, 2000));
 
-          // Aggressively close all extension tabs immediately after launch
+          // Close only extension tabs, keep about:blank
           const initialPages = await browser.pages();
           for (const p of initialPages) {
             try {
               const pageUrl = p.url();
+              // Only close extension pages, NOT about:blank or empty pages
               if (pageUrl.includes('chrome-extension://') || 
                   pageUrl.includes('consent-o-matic') ||
-                  pageUrl.includes('options.html') ||
-                  pageUrl === 'about:blank' ||
-                  pageUrl === '') {
+                  pageUrl.includes('options.html')) {
                 console.log(`Closing extension tab at launch: ${pageUrl}`);
                 await p.close();
               }
@@ -303,34 +302,38 @@ async function processSingleSite(browser, url, siteQueues) {
   try {
     console.log('Creating new page...');
     
-    // Close ALL existing tabs first to ensure clean state
+    // Get existing pages but don't close about:blank - we might reuse it
     const existingPages = await browser.pages();
+    let blankPage = null;
+    
     for (const p of existingPages) {
       if (!p.isClosed()) {
-        try {
-          const pageUrl = p.url();
-          console.log(`Closing existing tab: ${pageUrl}`);
-          await p.close();
-          // Wait a bit for the tab to actually close
-          await new Promise(resolve => setTimeout(resolve, 100));
-        } catch (e) {
-          console.warn(`Could not close existing tab: ${e.message}`);
-          // Try to force close if regular close failed
+        const pageUrl = p.url();
+        
+        // Keep about:blank page for reuse, close others
+        if (pageUrl === 'about:blank') {
+          blankPage = p;
+          console.log(`Keeping blank page for reuse: ${pageUrl}`);
+        } else {
           try {
-            await p.evaluate(() => window.close());
-          } catch (forceError) {
-            console.warn(`Force close also failed: ${forceError.message}`);
+            console.log(`Closing existing tab: ${pageUrl}`);
+            await p.close();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          } catch (e) {
+            console.warn(`Could not close existing tab: ${e.message}`);
           }
         }
       }
     }
     
-    // Additional wait to ensure all tabs are closed
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Create fresh page after closing all tabs
-    page = await browser.newPage();
-    console.log('New page created successfully');
+    // Use existing blank page or create new one
+    if (blankPage && !blankPage.isClosed()) {
+      page = blankPage;
+      console.log('Reusing existing blank page');
+    } else {
+      page = await browser.newPage();
+      console.log('Created new page');
+    }
     
     // Verify we're on a clean page
     const currentUrl = page.url();
