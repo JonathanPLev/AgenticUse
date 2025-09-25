@@ -1,9 +1,111 @@
-📄 Creating new page...
-✅ New page created successfully
-🗑️  Closing unwanted initial tab: about:blank
-📡 Navigating to mail.ru
-🔗 Working URL: https://mail.ru
-🎯 Normalized URL: https://mail.ru
+Creating new page...
+Keeping blank page for reuse: about:blank
+Reusing existing blank page
+Starting with clean page: about:blank
+Navigating to mail.ru
+Working URL: https://mail.ru
+Normalized URL: https://mail.ru
 https://mail.ru
-🧭 Attempting navigation with strategy: networkidle0
-🚀 Attempting to navigate to: https://mail.ru
+Attempting navigation with strategy: domcontentloaded
+Attempting to navigate to: https://mail.ru
+Navigation result: https://mail.ru/
+Page title: Mail: Почта, Облако, Календарь, Заметки, Покупки — сервисы для работы и жизни
+Content check: {
+  bodyLength: [33m346522[39m,
+  hasVisibleElements: [33mtrue[39m,
+  hasImages: [33mtrue[39m,
+  hasLinks: [33mtrue[39m,
+  hasInputs: [33mtrue[39m,
+  totalElements: [33m15127[39m
+}
+Navigation succeeded with domcontentloaded
+   → Final URL: https://mail.ru/
+   → Title: Mail: Почта, Облако, Календарь, Заметки, Покупки — сервисы для работы и жизни
+   → Body length: 346522
+   → Elements: 15127
+Applying bot mitigation after navigation...
+Applying enhanced bot mitigation...
+Bot mitigation applied successfully
+Bot mitigation applied successfully
+Handling consent banners with Consent-O-Matic...
+Checking for consent banners and Consent-O-Matic extension...
+Switched to main page: https://mail.ru/
+Consent-O-Matic active (4/8 indicators)
+Consent-O-Matic successfully handled consent banners
+Consent handling completed
+Setting up enhanced instrumentation...
+Enhanced instrumentation setup complete
+Enabling CDP domains...
+Network.enable enabled successfully
+Runtime.enable enabled successfully
+DOM.enable enabled successfully
+Running generic detection (regex-based patterns + iframe support)...
+Starting generic detection (regex-based patterns)...
+Waiting for dynamic content to load...
+Found 1 search elements using generic patterns
+Found 66 chatbot indicators using generic patterns
+Checking 13 frames for chatbots (including iframes)
+  Checking frame: https://mail.ru/
+  Checking frame: https://yandex.ru/portal/searchframe/desktop?theme=system&button=&mstatid=100000000&dark_theme=0&image_search=1
+  Checking frame: https://vkvideo.ru/video_ext.php?oid=-25380626&id=456283287&hd=2&autoplay=1&extra_params[partner_position]=1&mute=1&js_api=1
+  Checking frame: https://r.mradx.net/h5/00/4E823B93/D07518B25A.html?data=AADl_AFsQQRLa3PD28VrbzThXnEw0e3JwhxNoWDI-pp4-ahdDyq1j5OOwRs1doLreQXkcPX_CWuMVOI9WyHYHUutVIw3_JSwPal3W0usyEv0pqMzmxcSO9eadtVzOTf6PKmX-th5DV0SUVFWRmo4WUHXTfNN3CxTiYctKv2uVJ3cOfeUOq7A8SwnAAAASCNO7BZDOzb0SRA6OOnRkb4vJ5WBt_CWd9vvPysi-H-SPsPTSUtEvJ0f-jGLcxXi
+  Checking frame: https://ad.mail.ru/dist/vkAuth.html
+  Checking frame: https://ad.mail.ru/dist/vkAuth.html
+Found 3 chatbot indicators across all frames
+Found 98 chatbot indicators in all frames
+Generic detection results:
+   Search elements: 1
+   Chatbots (main frame): 66
+   Chatbots (all frames): 98
+Instrumentation Status:
+   Network requests: 25
+   Dynamic content: Detected
+   Meaningful domains: 0
+Starting enhanced input interaction for: https://mail.ru/
+Applying enhanced bot mitigation...
+Bot mitigation applied successfully
+Starting generic detection (regex-based patterns)...
+Waiting for dynamic content to load...
+Found 1 search elements using generic patterns
+Found 66 chatbot indicators using generic patterns
+Checking 13 frames for chatbots (including iframes)
+  Checking frame: https://mail.ru/
+  Checking frame: https://yandex.ru/portal/searchframe/desktop?theme=system&button=&mstatid=100000000&dark_theme=0&image_search=1
+  Checking frame: https://vkvideo.ru/video_ext.php?oid=-25380626&id=456283287&hd=2&autoplay=1&extra_params[partner_position]=1&mute=1&js_api=1
+  Checking frame: https://r.mradx.net/h5/00/4E823B93/D07518B25A.html?data=AADl_AFsQQRLa3PD28VrbzThXnEw0e3JwhxNoWDI-pp4-ahdDyq1j5OOwRs1doLreQXkcPX_CWuMVOI9WyHYHUutVIw3_JSwPal3W0usyEv0pqMzmxcSO9eadtVzOTf6PKmX-th5DV0SUVFWRmo4WUHXTfNN3CxTiYctKv2uVJ3cOfeUOq7A8SwnAAAASCNO7BZDOzb0SRA6OOnRkb4vJ5WBt_CWd9vvPysi-H-SPsPTSUtEvJ0f-jGLcxXi
+  Checking frame: https://ad.mail.ru/dist/vkAuth.html
+  Checking frame: https://ad.mail.ru/dist/vkAuth.html
+Found 3 chatbot indicators across all frames
+Found 98 chatbot indicators in all frames
+Generic detection results:
+   Search elements: 1
+   Chatbots (main frame): 66
+   Chatbots (all frames): 98
+Generic detection results:
+Detecting search elements...
+   Search elements: 1
+   Chatbots (main frame): 0
+   Chatbots (all frames): 3
+Found 0 interactive elements
+Total elements to interact with: 1
+Applying enhanced bot mitigation...
+Bot mitigation applied successfully
+Interaction failed: Navigation timeout of 30000 ms exceeded
+Interaction summary: 1 interactions, 0 network requests
+Completed 1 interactions with 0 network requests
+Generating function tracking report...
+Function tracking report saved to: data/mail.ru/function_tracking_report.json
+Crawled mail.ru successfully
+   - Network requests: 0
+   - Input interactions: 1
+   - Elements found: 1
+   - Generic search elements: 1
+   - Generic chatbots: 0
+   - Iframe chatbots: 3
+   - Function calls tracked: 0
+   - Event listeners tracked: 0
+   - Functions monitored: 0
+📝 Will process 1 form(s)
+Error crawling mail.ru: Navigation timeout of 30000 ms exceeded
+Ensuring data is saved for mail.ru despite error...
+Successfully saved partial data for mail.ru
