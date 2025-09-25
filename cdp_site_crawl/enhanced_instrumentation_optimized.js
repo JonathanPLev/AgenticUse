@@ -1,8 +1,11 @@
 // enhanced_instrumentation_optimized.js
 // ENHANCED VERSION: Full data collection with function tracking capabilities
 
-const { DataQueue } = require('./helpers');
-const { FunctionTracker } = require('./function_tracker');
+const fs = require('fs');
+const path = require('path');
+const { QueueManager } = require('./queue_manager.js');
+const { FunctionTracker } = require('./function_tracker.js');
+const { EnhancedNetworkTracer } = require('./enhanced_network_tracer.js');
 
 // Configuration for full data collection (removed size limits as requested)
 const LOG_LIMITS = {
@@ -123,6 +126,11 @@ async function enhancedInstrumentPage(page, queues) {
   // Initialize function tracking
   const functionTracker = new FunctionTracker(page, functionTrackingQueue, networkQueue);
   await functionTracker.initialize();
+  
+  // Initialize enhanced network tracer with error-based correlation
+  const networkTracer = new EnhancedNetworkTracer(page, networkQueue);
+  await networkTracer.initialize();
+  networkTracer.startPeriodicExtraction();
 
   // Enhanced CDP session creation with retry logic
   let client;
@@ -263,26 +271,139 @@ async function enhancedInstrumentPage(page, queues) {
         dynamicContentDetected = true;
       }
       
-      // Get function call correlation from page context
-      page.evaluate((reqId) => {
-        // Check if this request was triggered by a tracked function
-        const functionCallId = window.__functionTracker?.functionToRequestMap?.get(reqId);
-        return functionCallId || null;
-      }, requestId).then(functionCallId => {
-        // Log request data with function correlation
-        networkQueue?.enqueue?.({
-          event: 'requestWillBeSent',
-          requestId,
-          url,
-          method: request.method,
-          headers: request.headers,
-          type,
-          isDynamic: isDynamicRequest,
-          triggeredByFunction: functionCallId, // Link to function call
-          timestamp: Date.now()
+      // Enhanced function call correlation with detailed analysis
+      page.evaluate((reqId, requestUrl, requestMethod) => {
+        const tracker = window.__functionTracker;
+        if (!tracker) return null;
+        
+        // Get current stack trace to correlate with network request
+        const currentStack = new Error().stack;
+        
+        // Find the most recent function call that might have triggered this request
+        const recentCalls = tracker.calls?.slice(-10) || [];
+        let correlatedCall = null;
+        
+        // Look for function calls that happened within the last 100ms
+        const now = Date.now();
+        for (let i = recentCalls.length - 1; i >= 0; i--) {
+          const call = recentCalls[i];
+          if (now - call.timestamp < 100) {
+            // Check if this call's stack trace contains network-related functions
+            const stackStr = call.stackTrace || '';
+            if (stackStr.includes('fetch') || stackStr.includes('XMLHttpRequest') || 
+                stackStr.includes('ajax') || stackStr.includes(requestUrl.split('/').pop())) {
+              correlatedCall = call;
+              break;
+            }
+          }
+        }
+        
+        // If no direct correlation, get the most recent call
+        if (!correlatedCall && recentCalls.length > 0) {
+          correlatedCall = recentCalls[recentCalls.length - 1];
+        }
+        
+        return {
+          functionCall: correlatedCall,
+          currentStack: currentStack,
+          trackerStats: {
+            totalCalls: tracker.calls?.length || 0,
+            recentCallsCount: recentCalls.length
+          }
+        };
+      }, requestId, url, request.method).then(correlationData => {
+        
+        // Extract initiator stack trace details
+        const initiatorStack = params.initiator?.stack?.callFrames || [];
+        const enhancedStackTrace = initiatorStack.map(frame => ({
+          functionName: frame.functionName || 'anonymous',
+          scriptUrl: frame.url,
+          lineNumber: frame.lineNumber,
+          columnNumber: frame.columnNumber,
+          scriptId: frame.scriptId
+        }));
+        
+        // Get function source code for the top stack frame if available
+        const topFrame = initiatorStack[0];
+        let functionSourcePromise = Promise.resolve(null);
+        
+        if (topFrame && topFrame.scriptId) {
+          functionSourcePromise = page.evaluate((scriptId, lineNum) => {
+            try {
+              // Try to get the script source
+              const scripts = document.querySelectorAll('script');
+              for (let script of scripts) {
+                if (script.src && script.src.includes(scriptId)) {
+                  return script.textContent || script.innerHTML;
+                }
+              }
+              return null;
+            } catch (e) {
+              return null;
+            }
+          }, topFrame.scriptId, topFrame.lineNumber).catch(() => null);
+        }
+        
+        functionSourcePromise.then(functionSource => {
+          // Enhanced network log entry with detailed function analysis
+          const enhancedNetworkEntry = {
+            event: 'requestWillBeSent',
+            requestId,
+            url,
+            method: request.method,
+            headers: request.headers,
+            postData: request.postData,
+            type,
+            isDynamic: isDynamicRequest,
+            timestamp: Date.now(),
+            
+            // Enhanced function correlation data
+            functionAnalysis: {
+              correlatedFunctionCall: correlationData?.functionCall,
+              initiatorType: params.initiator?.type,
+              enhancedStackTrace,
+              functionSource: functionSource,
+              
+              // Detailed stack analysis
+              stackAnalysis: {
+                totalFrames: enhancedStackTrace.length,
+                topFunction: enhancedStackTrace[0]?.functionName,
+                scriptOrigin: enhancedStackTrace[0]?.scriptUrl,
+                isMinified: enhancedStackTrace[0]?.scriptUrl?.includes('.min.') || 
+                           enhancedStackTrace.some(f => f.functionName?.length === 1),
+                hasAsyncFrames: enhancedStackTrace.some(f => f.functionName?.includes('async'))
+              },
+              
+              // Function tracker correlation
+              trackerCorrelation: {
+                hasTracker: !!correlationData,
+                trackerStats: correlationData?.trackerStats,
+                correlationConfidence: correlationData?.functionCall ? 'high' : 'low'
+              }
+            },
+            
+            // Request context analysis
+            requestContext: {
+              frameId: params.frameId,
+              isMainFrame: !params.frameId || params.frameId === 'main',
+              resourceType: type,
+              isThirdParty: !url.includes(new URL(page.url()).hostname),
+              urlAnalysis: {
+                domain: new URL(url).hostname,
+                path: new URL(url).pathname,
+                hasQueryParams: new URL(url).search.length > 0,
+                isAPI: url.includes('api') || url.includes('ajax') || url.includes('.json'),
+                isMedia: /\.(jpg|jpeg|png|gif|mp4|webm|mp3)$/i.test(url)
+              }
+            }
+          };
+          
+          networkQueue?.enqueue?.(enhancedNetworkEntry);
         });
-      }).catch(() => {
-        // Fallback without function correlation
+        
+      }).catch(error => {
+        console.warn('Function correlation error:', error.message);
+        // Fallback with basic data
         networkQueue?.enqueue?.({
           event: 'requestWillBeSent',
           requestId,
@@ -291,7 +412,8 @@ async function enhancedInstrumentPage(page, queues) {
           headers: request.headers,
           type,
           isDynamic: isDynamicRequest,
-          timestamp: Date.now()
+          timestamp: Date.now(),
+          error: 'Function correlation failed: ' + error.message
         });
       });
     } catch (error) {
@@ -631,9 +753,23 @@ function analyzeChatbotContentOptimized(html, url) {
   return indicators;
 }
 
+// Cleanup function for network tracer
+async function cleanupInstrumentation(page, networkTracer) {
+  try {
+    if (networkTracer) {
+      networkTracer.stopPeriodicExtraction();
+      // Extract any remaining data
+      await networkTracer.extractCorrelationData();
+    }
+  } catch (error) {
+    console.warn('Error during instrumentation cleanup:', error.message);
+  }
+}
+
 module.exports = {
   enhancedInstrumentPage,
   processFrameContentOptimized,
   processAllFramesOptimized,
-  analyzeChatbotContentOptimized
+  analyzeChatbotContentOptimized,
+  cleanupInstrumentation
 };
