@@ -176,11 +176,34 @@ const allQueues = [];
               `--disable-extensions-except=${extensionDir}`,
               `--load-extension=${extensionDir}`,
               '--disable-popup-blocking',
-              '--disable-default-apps'
+              '--disable-default-apps',
+              '--disable-extensions-ui-warnings',
+              '--disable-extension-welcome-pages'
             ],
             userDataDir: profilePath,
             dumpio: false  // Disable verbose logging to reduce noise
           });
+
+          // Wait for browser to fully initialize
+          await new Promise(resolve => setTimeout(resolve, 2000));
+
+          // Aggressively close all extension tabs immediately after launch
+          const initialPages = await browser.pages();
+          for (const p of initialPages) {
+            try {
+              const pageUrl = p.url();
+              if (pageUrl.includes('chrome-extension://') || 
+                  pageUrl.includes('consent-o-matic') ||
+                  pageUrl.includes('options.html') ||
+                  pageUrl === 'about:blank' ||
+                  pageUrl === '') {
+                console.log(`Closing extension tab at launch: ${pageUrl}`);
+                await p.close();
+              }
+            } catch (e) {
+              console.warn(`Could not close initial tab: ${e.message}`);
+            }
+          }
 
           // Create site-specific queues array for this iteration
           const siteQueues = [];
@@ -288,11 +311,22 @@ async function processSingleSite(browser, url, siteQueues) {
           const pageUrl = p.url();
           console.log(`Closing existing tab: ${pageUrl}`);
           await p.close();
+          // Wait a bit for the tab to actually close
+          await new Promise(resolve => setTimeout(resolve, 100));
         } catch (e) {
           console.warn(`Could not close existing tab: ${e.message}`);
+          // Try to force close if regular close failed
+          try {
+            await p.evaluate(() => window.close());
+          } catch (forceError) {
+            console.warn(`Force close also failed: ${forceError.message}`);
+          }
         }
       }
     }
+    
+    // Additional wait to ensure all tabs are closed
+    await new Promise(resolve => setTimeout(resolve, 500));
     
     // Create fresh page after closing all tabs
     page = await browser.newPage();
@@ -303,9 +337,10 @@ async function processSingleSite(browser, url, siteQueues) {
     console.log(`Starting with clean page: ${currentUrl}`);
     
     // If somehow we're still on an extension page, force navigate to about:blank first
-    if (currentUrl.includes('chrome-extension://')) {
-      console.log('Detected extension page, navigating to about:blank first...');
+    if (currentUrl.includes('chrome-extension://') || currentUrl.includes('consent-o-matic')) {
+      console.log('Still on extension page, navigating to about:blank first');
       await page.goto('about:blank', { waitUntil: 'domcontentloaded', timeout: 5000 });
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
 
     // Set realistic headers and user agent
