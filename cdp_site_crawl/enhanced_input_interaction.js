@@ -672,6 +672,18 @@ async function triggerSubmissionEvents(page, element) {
             await randomDelay(300, 700);
             await submitButton.click();
             console.log(`Successfully clicked ${element.tagName}`);
+            
+            // Wait for network activity and page changes after submission
+            console.log('Waiting for network requests and page updates...');
+            await Promise.race([
+              page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 8000 }).catch(() => {}),
+              new Promise(resolve => setTimeout(resolve, 5000)) // Minimum 5 second wait
+            ]);
+            
+            // Additional wait for dynamic content
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            console.log('Form submission processing complete');
+            
             return { submitted: true, method: selector };
           }
         } catch (e) {
@@ -684,6 +696,18 @@ async function triggerSubmissionEvents(page, element) {
         if (f.submit) f.submit();
       });
       console.log('Form submitted via form.submit()');
+      
+      // Wait for network activity and page changes after submission
+      console.log('Waiting for network requests and page updates...');
+      await Promise.race([
+        page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 8000 }).catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, 5000)) // Minimum 5 second wait
+      ]);
+      
+      // Additional wait for dynamic content
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      console.log('Form submission processing complete');
+      
       return { submitted: true, method: 'form.submit()' };
     }
 
@@ -691,6 +715,18 @@ async function triggerSubmissionEvents(page, element) {
     await randomDelay(200, 500);
     await element.press('Enter');
     console.log('Attempted submission via Enter key');
+    
+    // Wait for network activity after Enter key submission
+    console.log('Waiting for network requests after Enter key...');
+    await Promise.race([
+      page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 8000 }).catch(() => {}),
+      new Promise(resolve => setTimeout(resolve, 5000)) // Minimum 5 second wait
+    ]);
+    
+    // Additional wait for dynamic content
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    console.log('Enter key submission processing complete');
+    
     return { submitted: true, method: 'Enter key' };
     
   } catch (error) {
