@@ -271,8 +271,8 @@ async function enhancedInstrumentPage(page, queues) {
         dynamicContentDetected = true;
       }
       
-      // Enhanced function call correlation with detailed analysis
-      page.evaluate((reqId, requestUrl, requestMethod) => {
+      // Enhanced function call correlation with detailed analysis and error handling
+      const correlationPromise = page.evaluate((reqId, requestUrl, requestMethod) => {
         const tracker = window.__functionTracker;
         if (!tracker) return null;
         
@@ -311,7 +311,19 @@ async function enhancedInstrumentPage(page, queues) {
             recentCallsCount: recentCalls.length
           }
         };
-      }, requestId, url, request.method).then(correlationData => {
+      }, requestId, url, request.method).catch(evalError => {
+        // Handle evaluation errors gracefully
+        if (evalError.message.includes('Execution context was destroyed') ||
+            evalError.message.includes('detached Frame') ||
+            evalError.message.includes('Promise was collected') ||
+            evalError.message.includes('Target closed')) {
+          return null; // Silently ignore context destruction errors
+        }
+        console.warn('Function correlation error:', evalError.message);
+        return null;
+      });
+
+      correlationPromise.then(correlationData => {
         
         // Extract initiator stack trace details
         const initiatorStack = params.initiator?.stack?.callFrames || [];
@@ -345,60 +357,70 @@ async function enhancedInstrumentPage(page, queues) {
         }
         
         functionSourcePromise.then(functionSource => {
-          // Enhanced network log entry with detailed function analysis
-          const enhancedNetworkEntry = {
-            event: 'requestWillBeSent',
-            requestId,
-            url,
-            method: request.method,
-            headers: request.headers,
-            postData: request.postData,
-            type,
-            isDynamic: isDynamicRequest,
-            timestamp: Date.now(),
-            
-            // Enhanced function correlation data
-            functionAnalysis: {
-              correlatedFunctionCall: correlationData?.functionCall,
-              initiatorType: params.initiator?.type,
-              enhancedStackTrace,
-              functionSource: functionSource,
+          // Only process if we have valid correlation data
+          if (correlationData !== null) {
+            // Enhanced network log entry with detailed function analysis
+            const enhancedNetworkEntry = {
+              event: 'requestWillBeSent',
+              requestId,
+              url,
+              method: request.method,
+              headers: request.headers,
+              postData: request.postData,
+              type,
+              isDynamic: isDynamicRequest,
+              timestamp: Date.now(),
               
-              // Detailed stack analysis
-              stackAnalysis: {
-                totalFrames: enhancedStackTrace.length,
-                topFunction: enhancedStackTrace[0]?.functionName,
-                scriptOrigin: enhancedStackTrace[0]?.scriptUrl,
-                isMinified: enhancedStackTrace[0]?.scriptUrl?.includes('.min.') || 
-                           enhancedStackTrace.some(f => f.functionName?.length === 1),
-                hasAsyncFrames: enhancedStackTrace.some(f => f.functionName?.includes('async'))
+              // Enhanced function correlation data
+              functionAnalysis: {
+                correlatedFunctionCall: correlationData?.functionCall,
+                initiatorType: params.initiator?.type,
+                enhancedStackTrace,
+                functionSource: functionSource,
+                
+                // Detailed stack analysis
+                stackAnalysis: {
+                  totalFrames: enhancedStackTrace.length,
+                  topFunction: enhancedStackTrace[0]?.functionName,
+                  scriptOrigin: enhancedStackTrace[0]?.scriptUrl,
+                  isMinified: enhancedStackTrace[0]?.scriptUrl?.includes('.min.') || 
+                             enhancedStackTrace.some(f => f.functionName?.length === 1),
+                  hasAsyncFrames: enhancedStackTrace.some(f => f.functionName?.includes('async'))
+                },
+                
+                // Function tracker correlation
+                trackerCorrelation: {
+                  hasTracker: !!correlationData,
+                  trackerStats: correlationData?.trackerStats,
+                  correlationConfidence: correlationData?.functionCall ? 'high' : 'low'
+                }
               },
               
-              // Function tracker correlation
-              trackerCorrelation: {
-                hasTracker: !!correlationData,
-                trackerStats: correlationData?.trackerStats,
-                correlationConfidence: correlationData?.functionCall ? 'high' : 'low'
+              // Request context analysis
+              requestContext: {
+                frameId: params.frameId,
+                isMainFrame: !params.frameId || params.frameId === 'main',
+                resourceType: type,
+                isThirdParty: !url.includes(new URL(page.url()).hostname),
+                urlAnalysis: {
+                  domain: new URL(url).hostname,
+                  path: new URL(url).pathname,
+                  hasQueryParams: new URL(url).search.length > 0,
+                  isAPI: url.includes('api') || url.includes('ajax') || url.includes('.json'),
+                  isMedia: /\.(jpg|jpeg|png|gif|mp4|webm|mp3)$/i.test(url)
+                }
               }
-            },
+            };
             
-            // Request context analysis
-            requestContext: {
-              frameId: params.frameId,
-              isMainFrame: !params.frameId || params.frameId === 'main',
-              resourceType: type,
-              isThirdParty: !url.includes(new URL(page.url()).hostname),
-              urlAnalysis: {
-                domain: new URL(url).hostname,
-                path: new URL(url).pathname,
-                hasQueryParams: new URL(url).search.length > 0,
-                isAPI: url.includes('api') || url.includes('ajax') || url.includes('.json'),
-                isMedia: /\.(jpg|jpeg|png|gif|mp4|webm|mp3)$/i.test(url)
-              }
-            }
-          };
-          
-          networkQueue?.enqueue?.(enhancedNetworkEntry);
+            networkQueue?.enqueue?.(enhancedNetworkEntry);
+          }
+        }).catch(sourceError => {
+          // Handle function source extraction errors
+          if (!sourceError.message.includes('detached Frame') &&
+              !sourceError.message.includes('Execution context was destroyed') &&
+              !sourceError.message.includes('Promise was collected')) {
+            console.warn('Function source extraction error:', sourceError.message);
+          }
         });
         
       }).catch(error => {
@@ -447,7 +469,7 @@ async function enhancedInstrumentPage(page, queues) {
         // Response body not available
       }
       
-      // Get function call correlation and link with response
+      // Get function call correlation and link with response with error handling
       page.evaluate((reqId) => {
         const functionCallId = window.__functionTracker?.functionToRequestMap?.get(reqId);
         const requestInfo = window.__functionTracker?.activeNetworkRequests?.get(reqId);
@@ -463,7 +485,15 @@ async function enhancedInstrumentPage(page, queues) {
           triggeredByFunction: correlation.functionCallId,
           clientSideRequestInfo: correlation.requestInfo
         });
-      }).catch(() => {
+      }).catch(correlationError => {
+        // Handle correlation errors gracefully
+        if (!correlationError.message.includes('detached Frame') &&
+            !correlationError.message.includes('Execution context was destroyed') &&
+            !correlationError.message.includes('Promise was collected') &&
+            !correlationError.message.includes('Target closed')) {
+          console.warn('Response correlation error:', correlationError.message);
+        }
+        
         // Fallback without correlation
         functionTracker.linkWithNetworkRequests({
           requestId,
