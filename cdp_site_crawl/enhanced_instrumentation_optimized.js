@@ -203,13 +203,9 @@ async function enhancedInstrumentPage(page, queues) {
     }
   }
 
-  // Enhanced debugger configuration for function name capture
+  // Enhanced debugger configuration for script parsing only (no pausing)
   try {
-    await client.send('Debugger.setAsyncCallStackDepth', { maxDepth: 16 });
-    await client.send('Debugger.setBreakpointsActive', { active: true });
-    await client.send('Debugger.setPauseOnExceptions', { state: 'uncaught' });
     await client.send('Runtime.setAsyncCallStackDepth', { maxDepth: 16 });
-    await client.send('Debugger.setSkipAllPauses', { skip: false });
   } catch (debuggerError) {
     console.warn(`Enhanced debugger configuration failed: ${debuggerError.message}`);
   }
@@ -600,38 +596,6 @@ async function enhancedInstrumentPage(page, queues) {
       });
     } catch (error) {
       console.warn(`Error handling script parsed: ${error.message}`);
-    }
-  });
-
-  // Function name capture for tracking (moved to function tracker)
-  client.on('Debugger.paused', async (params) => {
-    try {
-      const { callFrames, reason } = params;
-      
-      // Extract function names efficiently
-      const functionNames = callFrames.map(frame => ({
-        functionName: frame.functionName || 'anonymous',
-        url: frame.url,
-        lineNumber: frame.location?.lineNumber || 0,
-        columnNumber: frame.location?.columnNumber || 0
-      }));
-      
-      // Log to function tracking queue instead of debug queue
-      functionTrackingQueue?.enqueue?.({
-        event: 'debuggerPaused',
-        reason,
-        functionNames,
-        timestamp: Date.now()
-      });
-      
-      await client.send('Debugger.resume');
-    } catch (error) {
-      console.warn(`Error handling debugger pause: ${error.message}`);
-      try {
-        await client.send('Debugger.resume');
-      } catch (resumeError) {
-        console.warn(`Error resuming debugger: ${resumeError.message}`);
-      }
     }
   });
 
