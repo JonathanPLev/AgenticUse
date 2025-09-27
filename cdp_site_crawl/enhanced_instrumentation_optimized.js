@@ -6,14 +6,14 @@ const path = require('path');
 const { QueueManager } = require('./queue_manager.js');
 const { FunctionTracker } = require('./function_tracker.js');
 const { EnhancedNetworkTracer } = require('./enhanced_network_tracer.js');
+const { StreamingResponseProcessor } = require('./streaming_response_processor.js');
 
-// Configuration for full data collection (removed size limits as requested)
+// Configuration for small in-memory data only (large content is streamed to disk)
 const LOG_LIMITS = {
-  MAX_RESPONSE_BODY: null,       // No limit on response body
-  MAX_HTML_CONTENT: null,        // No limit on HTML content
-  MAX_SCRIPT_SOURCE: null,       // No limit on script source
-  MAX_CONSOLE_ARGS: null,        // No limit on console arguments
-  TRUNCATE_SUFFIX: '...[TRUNCATED]'
+  MAX_CONSOLE_ARGS: 10000,
+  MAX_NETWORK_HEADERS: null,
+  MAX_STACK_FRAMES: 20,
+  TRUNCATE_SUFFIX: '...[TRUNCATED_FOR_MEMORY]'
 };
 
 // Static file extensions to filter out
@@ -90,8 +90,16 @@ function extractEssentialMetadata(content, url) {
 }
 
 function truncateContent(content, maxLength) {
-  // Return full content without truncation as requested
-  return content;
+  if (!content || !maxLength) return content || '';
+  if (typeof content !== 'string') {
+    try {
+      content = JSON.stringify(content);
+    } catch (e) {
+      return '[UNSERIALIZABLE_CONTENT]';
+    }
+  }
+  if (content.length <= maxLength) return content;
+  return content.substring(0, maxLength) + LOG_LIMITS.TRUNCATE_SUFFIX;
 }
 
 function isStaticFile(url) {
@@ -105,12 +113,31 @@ function isStaticFile(url) {
   }
 }
 
+// This function is no longer needed since large content is streamed to disk
+// Keeping it for any remaining small content processing
 function shouldTruncateContent(content, maxSize) {
-  // Return full content without truncation as requested
+  if (!content || !maxSize) {
+    return {
+      content: content || '',
+      truncated: false,
+      metadata: extractEssentialMetadata(content)
+    };
+  }
+  
   const metadata = extractEssentialMetadata(content);
+  
+  if (content.length <= maxSize) {
+    return {
+      content: content,
+      truncated: false,
+      metadata
+    };
+  }
+  
   return {
-    content: content,
-    truncated: false,
+    content: truncateContent(content, maxSize),
+    truncated: true,
+    originalSize: content.length,
     metadata
   };
 }
@@ -122,6 +149,12 @@ async function enhancedInstrumentPage(page, queues) {
   const processedFrames = new Set();
   let networkRequestCount = 0;
   let dynamicContentDetected = false;
+  
+  // Initialize streaming processor for the current site
+  const currentUrl = page.url();
+  const urlSlug = currentUrl.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+  const siteOutputDir = path.join('data', urlSlug);
+  const streamingProcessor = new StreamingResponseProcessor(siteOutputDir);
   
   // Initialize function tracking
   const functionTracker = new FunctionTracker(page, functionTrackingQueue, networkQueue);
@@ -236,7 +269,7 @@ async function enhancedInstrumentPage(page, queues) {
             try {
               const currentFrameInfo = frameTracker.get(frameId);
               if (currentFrameInfo && currentFrameInfo.attached) {
-                await processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue);
+                await processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue, streamingProcessor, siteOutputDir);
               }
             } catch (error) {
               console.warn(`Error processing navigated frame: ${error.message}`);
@@ -454,19 +487,19 @@ async function enhancedInstrumentPage(page, queues) {
         return;
       }
       
-      // Get full response body without truncation
-      let responseBody = '';
-      let bodyMetadata = null;
-      let bodyTruncated = false;
+      // Stream response body directly to disk instead of storing in memory
+      let responseMetadata = null;
       try {
-        const bodyResponse = await client.send('Network.getResponseBody', { requestId });
-        if (bodyResponse && bodyResponse.body) {
-          responseBody = bodyResponse.body;
-          bodyMetadata = extractEssentialMetadata(bodyResponse.body);
-          bodyTruncated = false;
-        }
-      } catch (bodyError) {
-        // Response body not available
+        responseMetadata = await streamingProcessor.startResponseStream(
+          client, requestId, url, response.mimeType, response.headers, response.status
+        );
+      } catch (streamError) {
+        console.warn(`Error streaming response ${requestId}: ${streamError.message}`);
+        responseMetadata = {
+          url,
+          error: streamError.message,
+          timestamp: Date.now()
+        };
       }
       
       // Get function call correlation and link with response with error handling
@@ -504,7 +537,7 @@ async function enhancedInstrumentPage(page, queues) {
         });
       });
       
-      // Log essential response data
+      // Log response metadata (body is already streamed to disk)
       responseQueue?.enqueue?.({
         event: 'responseReceived',
         requestId,
@@ -513,10 +546,11 @@ async function enhancedInstrumentPage(page, queues) {
         statusText: response.statusText,
         headers: response.headers,
         mimeType: response.mimeType,
-        body: responseBody,
-        bodySize: responseBody.length,
-        bodyTruncated,
-        bodyMetadata,
+        bodyStreamed: true,
+        streamedFile: responseMetadata?.filename,
+        streamedPath: responseMetadata?.filepath,
+        bodySize: responseMetadata?.bytesWritten || 0,
+        processingTime: responseMetadata?.processingTime,
         timestamp: Date.now()
       });
     } catch (error) {
@@ -529,18 +563,26 @@ async function enhancedInstrumentPage(page, queues) {
     try {
       const { scriptId, url, startLine, startColumn, endLine, endColumn } = params;
       
-      // Get full script source
-      let scriptSource = '';
+      // Stream script source directly to disk
+      let scriptMetadata = null;
       try {
         const sourceResponse = await client.send('Debugger.getScriptSource', { scriptId });
         if (sourceResponse && sourceResponse.scriptSource) {
-          scriptSource = sourceResponse.scriptSource;
+          scriptMetadata = await streamingProcessor.streamScriptSource(
+            scriptId, url, sourceResponse.scriptSource, siteOutputDir
+          );
         }
       } catch (sourceError) {
         // Script source not available
+        scriptMetadata = {
+          scriptId,
+          url,
+          error: sourceError.message,
+          timestamp: Date.now()
+        };
       }
       
-      // Log script with full source
+      // Log script metadata (source is already streamed to disk)
       functionTrackingQueue?.enqueue?.({
         event: 'scriptParsed',
         scriptId,
@@ -549,8 +591,11 @@ async function enhancedInstrumentPage(page, queues) {
         startColumn,
         endLine,
         endColumn,
-        scriptSource,
-        sourceLength: scriptSource.length,
+        sourceStreamed: true,
+        streamedFile: scriptMetadata?.filename,
+        streamedPath: scriptMetadata?.filepath,
+        sourceLength: scriptMetadata?.bytesWritten || 0,
+        originalSourceSize: scriptMetadata?.originalSize || 0,
         timestamp: Date.now()
       });
     } catch (error) {
@@ -595,18 +640,35 @@ async function enhancedInstrumentPage(page, queues) {
     try {
       const { type, args, stackTrace } = params;
       
-      // Keep full console arguments without truncation
-      const fullArgs = args.map(arg => ({
-        type: arg.type,
-        value: JSON.stringify(arg.value || '', null, 2)
-      }));
+      // Process console arguments with memory-safe limits
+      const fullArgs = args.map(arg => {
+        try {
+          let value = arg.value || '';
+          if (typeof value === 'object') {
+            value = JSON.stringify(value, null, 2);
+          } else {
+            value = String(value);
+          }
+          return {
+            type: arg.type,
+            value: truncateContent(value, LOG_LIMITS.MAX_CONSOLE_ARGS),
+            truncated: value.length > LOG_LIMITS.MAX_CONSOLE_ARGS
+          };
+        } catch (e) {
+          return {
+            type: arg.type,
+            value: '[UNSERIALIZABLE_ARG]',
+            truncated: false
+          };
+        }
+      });
       
       consoleQueue?.enqueue?.({
         event: 'consoleAPICalled',
         type,
         args: fullArgs,
         stackTrace: stackTrace ? {
-          callFrames: stackTrace.callFrames // Keep full stack trace
+          callFrames: stackTrace.callFrames.slice(0, LOG_LIMITS.MAX_STACK_FRAMES) // Limit stack trace depth
         } : undefined,
         timestamp: Date.now()
       });
@@ -630,10 +692,25 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
-  // Periodic frame processing with reduced frequency
+  // Periodic frame processing with memory cleanup
   const frameProcessingInterval = setInterval(async () => {
     try {
-      await processAllFramesOptimized(page, client, domQueue, interactionQueue, frameTracker, processedFrames);
+      await processAllFramesOptimized(page, client, domQueue, interactionQueue, frameTracker, processedFrames, streamingProcessor, siteOutputDir);
+      
+      // Memory cleanup: remove old frame data
+      const now = Date.now();
+      const maxAge = 300000; // 5 minutes
+      for (const [frameId, frameInfo] of frameTracker.entries()) {
+        if (frameInfo.createdAt && (now - frameInfo.createdAt) > maxAge) {
+          frameTracker.delete(frameId);
+        }
+      }
+      
+      // Limit processed frames set size
+      if (processedFrames.size > 1000) {
+        const framesToDelete = Array.from(processedFrames).slice(0, 500);
+        framesToDelete.forEach(frameId => processedFrames.delete(frameId));
+      }
     } catch (error) {
       console.warn(`Error in periodic frame processing: ${error.message}`);
     }
@@ -646,6 +723,7 @@ async function enhancedInstrumentPage(page, queues) {
       processedFrames.clear();
       meaningfulDomains.clear();
       functionTracker.cleanup();
+      streamingProcessor.cleanup();
     } catch (error) {
       console.warn(`Error during instrumentation cleanup: ${error.message}`);
     }
@@ -660,12 +738,13 @@ async function enhancedInstrumentPage(page, queues) {
     getNetworkRequestCount: () => networkRequestCount,
     getDynamicContentStatus: () => dynamicContentDetected,
     getMeaningfulDomains: () => Array.from(meaningfulDomains),
-    getFunctionTrackingReport: () => functionTracker.getTrackingReport()
+    getFunctionTrackingReport: () => functionTracker.getTrackingReport(),
+    getStreamingStats: () => streamingProcessor.getMemoryStats()
   };
 }
 
 // OPTIMIZED: Process frame content with size limits
-async function processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue) {
+async function processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue, streamingProcessor, siteOutputDir) {
   try {
     if (!frameUrl || frameUrl === 'about:blank' || frameUrl.startsWith('data:') || frameUrl.startsWith('blob:')) {
       return;
@@ -678,21 +757,31 @@ async function processFrameContentOptimized(client, frameId, frameUrl, domQueue,
         const { outerHTML } = await client.send('DOM.getOuterHTML', { nodeId: root.nodeId });
         
         if (outerHTML && outerHTML.length > 100) {
-          // Keep full HTML content without truncation
-          const fullHTML = outerHTML;
+          // Stream HTML content directly to disk
+          let htmlMetadata = null;
+          try {
+            htmlMetadata = await streamingProcessor.streamHTMLContent(
+              frameId, frameUrl, outerHTML, siteOutputDir
+            );
+          } catch (streamError) {
+            console.warn(`Error streaming HTML content: ${streamError.message}`);
+          }
           
           domQueue?.enqueue?.({
             event: 'frameContent',
             frameId,
             url: frameUrl,
-            html: fullHTML,
+            htmlStreamed: true,
+            streamedFile: htmlMetadata?.filename,
+            streamedPath: htmlMetadata?.filepath,
             originalSize: outerHTML.length,
-            truncated: false,
+            bytesWritten: htmlMetadata?.bytesWritten || 0,
             timestamp: Date.now()
           });
 
-          // Analyze for chatbot indicators
-          const chatbotIndicators = analyzeChatbotContentOptimized(fullHTML, frameUrl);
+          // Analyze for chatbot indicators (use first 5KB for analysis to avoid memory issues)
+          const htmlSample = outerHTML.substring(0, 5000);
+          const chatbotIndicators = analyzeChatbotContentOptimized(htmlSample, frameUrl);
           if (chatbotIndicators.length > 0) {
             interactionQueue?.enqueue?.({
               event: 'chatbotDetectedInFrame',
@@ -717,8 +806,8 @@ async function processFrameContentOptimized(client, frameId, frameUrl, domQueue,
   }
 }
 
-// OPTIMIZED: Process all frames with reduced frequency
-async function processAllFramesOptimized(page, client, domQueue, interactionQueue, frameTracker, processedFrames) {
+// OPTIMIZED: Process all frames
+async function processAllFramesOptimized(page, client, domQueue, interactionQueue, frameTracker, processedFrames, streamingProcessor, siteOutputDir) {
   try {
     const frames = page.frames();
     
@@ -737,7 +826,7 @@ async function processAllFramesOptimized(page, client, domQueue, interactionQueu
         
         if (frame.isDetached && frame.isDetached()) continue;
         
-        await processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue);
+        await processFrameContentOptimized(client, frameId, frameUrl, domQueue, interactionQueue, streamingProcessor, siteOutputDir);
         processedFrames.add(frameId);
         
         setTimeout(() => {
