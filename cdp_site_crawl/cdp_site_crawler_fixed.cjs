@@ -155,7 +155,7 @@ const allQueues = [];
           
           browser = await puppeteer.launch({
             headless: false,   // extensions only work in headful mode
-            protocolTimeout: 180000, // Increased to 3 minutes for problematic sites
+            protocolTimeout: 300000, // Increased to 5 minutes for complex sites
             ignoreDefaultArgs: [
               '--disable-extensions',
               '--disable-extensions-file-access-check',

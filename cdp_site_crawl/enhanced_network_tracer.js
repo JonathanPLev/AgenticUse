@@ -480,9 +480,15 @@ class EnhancedNetworkTracer {
         throw contextError;
       }
 
-      const data = await this.page.evaluate(() => {
-        return window.__networkTracerData || null;
-      });
+      // Add timeout to page.evaluate to prevent hanging
+      const data = await Promise.race([
+        this.page.evaluate(() => {
+          return window.__networkTracerData || null;
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Runtime.callFunctionOn timed out')), 10000)
+        )
+      ]);
       
       if (data && data.correlations) {
         // Store data in persistent storage before processing
@@ -500,16 +506,21 @@ class EnhancedNetworkTracer {
           }
         }
         
-        // Clear only live data, keep backup data
+        // Clear only live data, keep backup data (with timeout)
         try {
-          await this.page.evaluate(() => {
-            if (window.__networkTracer) {
-              // Only clear live correlations, keep backup data
-              window.__networkTracer.correlations.clear();
-              // Don't clear frameDataBackup or persistentStore
-              window.__networkTracerData = null;
-            }
-          });
+          await Promise.race([
+            this.page.evaluate(() => {
+              if (window.__networkTracer) {
+                // Only clear live correlations, keep backup data
+                window.__networkTracer.correlations.clear();
+                // Don't clear frameDataBackup or persistentStore
+                window.__networkTracerData = null;
+              }
+            }),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Clear data timeout')), 5000)
+            )
+          ]);
         } catch (clearError) {
           // Ignore errors when clearing data from detached contexts
           if (!clearError.message.includes('detached Frame') &&
@@ -526,7 +537,8 @@ class EnhancedNetworkTracer {
       if (error.message.includes('detached Frame') ||
           error.message.includes('Execution context was destroyed') ||
           error.message.includes('Promise was collected') ||
-          error.message.includes('Target closed')) {
+          error.message.includes('Target closed') ||
+          error.message.includes('Runtime.callFunctionOn timed out')) {
         return this.recoverFromPersistentStorage();
       }
       console.warn('Error extracting correlation data:', error.message);

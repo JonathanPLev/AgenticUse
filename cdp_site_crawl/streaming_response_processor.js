@@ -94,12 +94,13 @@ class StreamingResponseProcessor {
       // Close stream
       writeStream.end();
       
-      // Update final metadata
+      // Update final metadata with null checks
       const streamInfo = this.responseStreams.get(requestId);
+      const baseMetadata = this.responseMetadata.get(requestId) || {};
       const finalMetadata = {
-        ...this.responseMetadata.get(requestId),
-        bytesWritten: streamInfo.bytesWritten,
-        processingTime: Date.now() - streamInfo.startTime,
+        ...baseMetadata,
+        bytesWritten: streamInfo?.bytesWritten || 0,
+        processingTime: streamInfo ? Date.now() - streamInfo.startTime : 0,
         completed: true
       };
 
@@ -111,7 +112,18 @@ class StreamingResponseProcessor {
     } catch (error) {
       console.warn(`Error streaming response ${requestId}: ${error.message}`);
       this.responseStreams.delete(requestId);
-      return null;
+      
+      // Return safe metadata even on error
+      return {
+        url: url || 'unknown',
+        filename: null,
+        filepath: null,
+        bytesWritten: 0,
+        processingTime: 0,
+        completed: false,
+        error: error.message,
+        timestamp: Date.now()
+      };
     }
   }
 
