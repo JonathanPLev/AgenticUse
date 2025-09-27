@@ -192,16 +192,25 @@ async function simulateRandomClicks(page) {
   try {
     const originalUrl = page.url();
     
-    // Get clickable non-interactive elements
+
     const clickableElements = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('div, span, p, h1, h2, h3, h4, h5, h6, img'))
+      return Array.from(document.querySelectorAll('div, span, p'))
         .filter(el => {
           const rect = el.getBoundingClientRect();
           const style = window.getComputedStyle(el);
-          return rect.width > 10 && rect.height > 10 && 
+          
+          // Much more restrictive filtering to avoid navigation
+          return rect.width > 20 && rect.height > 20 && 
+                 rect.width < 200 && rect.height < 100 && // Avoid large clickable areas
                  style.visibility !== 'hidden' && 
                  style.display !== 'none' &&
-                 !el.closest('button, a, input, select, textarea, [onclick], [role="button"], [href]');
+                 style.cursor !== 'pointer' && // Avoid elements with pointer cursor
+                 !el.closest('button, a, input, select, textarea, [onclick], [role="button"], [href], nav, header, footer, .nav, .menu, .link') &&
+                 !el.textContent.toLowerCase().includes('click') &&
+                 !el.textContent.toLowerCase().includes('link') &&
+                 !el.getAttribute('class')?.toLowerCase().includes('link') &&
+                 !el.getAttribute('class')?.toLowerCase().includes('button') &&
+                 el.children.length === 0; // Only leaf elements
         })
         .slice(0, 20) // Limit to first 20 elements
         .map(el => {
@@ -214,57 +223,41 @@ async function simulateRandomClicks(page) {
         });
     });
 
-    // Click on 2-4 random non-interactive elements
-    const clickCount = 2 + Math.floor(Math.random() * 3);
+    // Only click 1-2 elements to minimize risk
+    const clickCount = 1 + Math.floor(Math.random() * 2);
     const elementsToClick = clickableElements
       .sort(() => Math.random() - 0.5)
       .slice(0, Math.min(clickCount, clickableElements.length));
+
+    // If no safe elements found, skip clicking entirely
+    if (elementsToClick.length === 0) {
+      console.log('No safe elements found for random clicking, skipping...');
+      return;
+    }
 
     for (const element of elementsToClick) {
       try {
         const urlBeforeClick = page.url();
         
-        // Set up navigation listener to detect if click causes navigation
-        let navigationOccurred = false;
-        const navigationPromise = page.waitForNavigation({ timeout: 2000 })
-          .then(() => { navigationOccurred = true; })
-          .catch(() => {}); // Ignore timeout - no navigation is good
+        // Pre-check: ensure we're still on the original page
+        if (page.url() !== originalUrl) {
+          console.log('Page URL changed before clicking, aborting random clicks');
+          break;
+        }
 
-        // Perform the click with timeout
+        // Perform the click with shorter timeout
         await Promise.race([
           page.mouse.click(element.x, element.y),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 2000))
+          new Promise((_, reject) => setTimeout(() => reject(new Error('Click timeout')), 1000))
         ]);
         
-        // Wait a bit to see if navigation occurs (reduced timeout)
-        await Promise.race([
-          navigationPromise,
-          new Promise(resolve => setTimeout(resolve, 500))
-        ]);
+        // Very short wait to detect immediate navigation
+        await new Promise(resolve => setTimeout(resolve, 200));
 
-        // If navigation occurred, go back to original page
-        if (navigationOccurred || page.url() !== urlBeforeClick) {
-          console.log(`Random click caused navigation from ${urlBeforeClick} to ${page.url()}, reverting...`);
-          try {
-            // Add timeout to goBack operation
-            await Promise.race([
-              page.goBack({ waitUntil: 'domcontentloaded', timeout: 3000 }),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('goBack timeout')), 4000))
-            ]);
-            
-            // If goBack doesn't work, navigate directly to original URL
-            if (page.url() !== originalUrl) {
-              await Promise.race([
-                page.goto(originalUrl, { waitUntil: 'domcontentloaded', timeout: 3000 }),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('goto timeout')), 4000))
-              ]);
-            }
-            console.log(`Successfully reverted to ${originalUrl}`);
-          } catch (revertError) {
-            console.warn('Failed to revert navigation:', revertError.message);
-            // Skip this element and continue - don't try more recovery
-            break;
-          }
+        // If navigation occurred, immediately abort without trying to revert
+        if (page.url() !== urlBeforeClick) {
+          console.log(`Random click caused navigation from ${urlBeforeClick} to ${page.url()}, aborting further clicks`);
+          throw new Error('Navigation detected - aborting random clicks to prevent context destruction');
         }
         
         await randomDelay(200, 800);
