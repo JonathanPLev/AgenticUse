@@ -67,13 +67,67 @@ function isCrawlComplete(urlDir) {
     }
     
     // Consider crawl complete if:
-    // 1. Total folder size > 5KB (indicates some data was collected)
+    // 1. Total folder size > 50KB (increased due to streamed files in subdirectories)
     // 2. At least 2 of the 3 required files exist with content
     // 3. No error.log exists, or if it exists, it's small (< 1KB)
     const hasErrorLog = files.includes('error.log');
     const errorLogSize = hasErrorLog ? fs.statSync(path.join(urlDir, 'error.log')).size : 0;
     
-    const isComplete = totalSize > 5120 && // > 5KB
+    // Calculate size including subdirectories (responses/, html_content/, scripts/)
+    // Also check for streaming processor directories that use different slug format
+    let totalSizeWithSubdirs = totalSize;
+    const subdirs = ['responses', 'html_content', 'scripts'];
+    
+    // Check subdirectories in current urlDir
+    for (const subdir of subdirs) {
+      const subdirPath = path.join(urlDir, subdir);
+      if (fs.existsSync(subdirPath)) {
+        const subdirFiles = fs.readdirSync(subdirPath);
+        for (const file of subdirFiles) {
+          const filePath = path.join(subdirPath, file);
+          const stats = fs.statSync(filePath);
+          totalSizeWithSubdirs += stats.size;
+        }
+      }
+    }
+    
+    // Also check for streaming processor directory with different slug format
+    // (e.g., mail.ru vs www___mail__ru)
+    const dataDir = path.dirname(urlDir);
+    const currentSlug = path.basename(urlDir);
+    
+    // Look for directories that might contain streamed files for this URL
+    try {
+      const allDirs = fs.readdirSync(dataDir);
+      for (const dir of allDirs) {
+        // Skip if it's the current directory or doesn't look like a URL slug
+        if (dir === currentSlug || !dir.includes('_')) continue;
+        
+        // Check if this directory might be for the same URL (contains similar patterns)
+        const dirPath = path.join(dataDir, dir);
+        const dirStats = fs.statSync(dirPath);
+        if (dirStats.isDirectory()) {
+          // Check if this directory has streaming subdirectories
+          let hasStreamingContent = false;
+          for (const subdir of subdirs) {
+            const streamingSubdirPath = path.join(dirPath, subdir);
+            if (fs.existsSync(streamingSubdirPath)) {
+              hasStreamingContent = true;
+              const subdirFiles = fs.readdirSync(streamingSubdirPath);
+              for (const file of subdirFiles) {
+                const filePath = path.join(streamingSubdirPath, file);
+                const stats = fs.statSync(filePath);
+                totalSizeWithSubdirs += stats.size;
+              }
+            }
+          }
+        }
+      }
+    } catch (error) {
+      // Ignore errors when scanning for additional directories
+    }
+    
+    const isComplete = totalSizeWithSubdirs > 51200 && // > 50KB (including streamed files)
                       foundRequiredFiles >= 2 && // At least 2 required files
                       errorLogSize < 1024; // Error log < 1KB or doesn't exist
     
@@ -326,18 +380,32 @@ async function processSingleSite(browser, url, siteQueues) {
       }
     }
     
-    // Use existing blank page or create new one
+    // Always create a fresh page to avoid detached frame issues
+    page = await browser.newPage();
+    console.log('Created fresh page');
+    
+    // Close any existing blank pages to prevent conflicts
     if (blankPage && !blankPage.isClosed()) {
-      page = blankPage;
-      console.log('Reusing existing blank page');
-    } else {
-      page = await browser.newPage();
-      console.log('Created new page');
+      try {
+        await blankPage.close();
+        console.log('Closed existing blank page');
+      } catch (e) {
+        console.warn(`Could not close blank page: ${e.message}`);
+      }
     }
     
     // Verify we're on a clean page
     const currentUrl = page.url();
     console.log(`Starting with clean page: ${currentUrl}`);
+    
+    // Add page error handlers before navigation
+    page.on('error', (error) => {
+      console.warn(`Page error: ${error.message}`);
+    });
+    
+    page.on('pageerror', (error) => {
+      console.warn(`Page script error: ${error.message}`);
+    });
     
     // If somehow we're still on an extension page, force navigate to about:blank first
     if (currentUrl.includes('chrome-extension://') || currentUrl.includes('consent-o-matic')) {
@@ -398,10 +466,20 @@ async function processSingleSite(browser, url, siteQueues) {
             throw new Error(`Invalid URL for navigation: ${workingUrl}`);
           }
           
+          // Check if page is still valid before navigation
+          if (page.isClosed()) {
+            throw new Error('Page was closed before navigation');
+          }
+          
           console.log(`Attempting to navigate to: ${workingUrl}`);
           
-          // Navigate with response monitoring
-          const response = await page.goto(workingUrl, strategy);
+          // Navigate with response monitoring and detached frame protection
+          const response = await Promise.race([
+            page.goto(workingUrl, strategy),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Navigation timeout - frame may be detached')), strategy.timeout + 5000)
+            )
+          ]);
           
           // Wait for redirects and dynamic content to load
           await new Promise(resolve => setTimeout(resolve, 5000));
@@ -452,30 +530,54 @@ async function processSingleSite(browser, url, siteQueues) {
             console.log(`   → Title: ${title || 'No title'}`);
             console.log(`   → Body length: ${contentCheck.bodyLength}`);
             console.log(`   → Elements: ${contentCheck.totalElements}`);
-            break;
-          } else {
-            console.warn(`Navigation to ${finalUrl} resulted in insufficient content`);
+            break; // Exit strategy loop on success
           }
           
-        } catch (navError) {
-          console.warn(`Navigation strategy ${strategy.waitUntil} failed: ${navError.message}`);
-          continue;
+        } catch (strategyError) {
+          console.log(`Navigation strategy ${strategy.waitUntil} failed: ${strategyError.message}`);
+          
+          // If frame is detached, create a new page and retry
+          if (strategyError.message.includes('detached Frame') || strategyError.message.includes('Target closed')) {
+            console.log('Frame detached, creating new page...');
+            try {
+              if (!page.isClosed()) {
+                await page.close();
+              }
+              page = await browser.newPage();
+              await setRealisticHeaders(page);
+              await page.setViewport({ width: 1366, height: 768 });
+              
+              // Add error handlers to new page
+              page.on('error', (error) => {
+                console.warn(`Page error: ${error.message}`);
+              });
+              
+              page.on('pageerror', (error) => {
+                console.warn(`Page script error: ${error.message}`);
+              });
+              
+              console.log('Created new page after frame detachment');
+            } catch (pageError) {
+              console.warn(`Failed to create new page: ${pageError.message}`);
+            }
+          }
+          
+          // If this was the last strategy, we'll handle it outside the loop
+          if (strategy === navigationStrategies[navigationStrategies.length - 1]) {
+            throw new Error(`All navigation strategies failed for ${url} - site may be inaccessible or require special handling`);
+          }
+          
+          // Brief pause before trying next strategy
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
       
-      if (!navigationSuccess) {
-        throw new Error(`All navigation strategies failed for ${url} - site may be inaccessible or require special handling`);
+      // Apply bot mitigation after successful navigation
+      if (navigationSuccess) {
+        console.log('Applying bot mitigation...');
+        await applyBotMitigation(page);
+        console.log('Bot mitigation applied successfully');
       }
-      
-      // Apply bot mitigation AFTER successful navigation
-      console.log('Applying bot mitigation after navigation...');
-      await applyBotMitigation(page, {
-        enableMouseMovement: true,
-        enableRandomScrolling: true,
-        enableRandomDelays: true,
-        logMitigation: true
-      });
-      console.log('Bot mitigation applied successfully');
       
     } catch (error) {
       console.error(`Navigation failed for ${url}: ${error.message}`);

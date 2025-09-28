@@ -24,6 +24,11 @@ const STATIC_EXTENSIONS = new Set([
   'pdf', 'zip', 'tar', 'gz', 'rar'
 ]);
 
+// Image extensions to exclude from streaming (but still track metadata)
+const IMAGE_EXTENSIONS = new Set([
+  'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'ico', 'bmp', 'tiff'
+]);
+
 // Extract essential metadata from content
 function extractEssentialMetadata(content, url) {
   const metadata = {
@@ -108,6 +113,17 @@ function isStaticFile(url) {
     const pathname = urlObj.pathname.toLowerCase();
     const extension = pathname.split('.').pop();
     return STATIC_EXTENSIONS.has(extension);
+  } catch {
+    return false;
+  }
+}
+
+function isImageFile(url) {
+  try {
+    const urlObj = new URL(url);
+    const pathname = urlObj.pathname.toLowerCase();
+    const extension = pathname.split('.').pop();
+    return IMAGE_EXTENSIONS.has(extension);
   } catch {
     return false;
   }
@@ -472,6 +488,26 @@ async function enhancedInstrumentPage(page, queues) {
     }
   });
 
+  // Track when responses finish loading to capture complete bodies
+  client.on('Network.loadingFinished', async (params) => {
+    try {
+      const { requestId, encodedDataLength } = params;
+      
+      // Try to get response body when loading is complete
+      try {
+        const response = await client.send('Network.getResponseBody', { requestId });
+        if (response && response.body) {
+          streamingProcessor.bufferResponseData(requestId, response.body, encodedDataLength);
+        }
+      } catch (error) {
+        // Response body not available - this is expected for many response types
+        // The streaming processor will handle this gracefully
+      }
+    } catch (error) {
+      // Ignore errors in response capture
+    }
+  });
+
   // OPTIMIZED: Response handling with body size limits
   client.on('Network.responseReceived', async (params) => {
     try {
@@ -483,19 +519,31 @@ async function enhancedInstrumentPage(page, queues) {
         return;
       }
       
-      // Stream response body directly to disk instead of storing in memory
+      // Stream response body directly to disk (skip images to save space)
       let responseMetadata = null;
-      try {
-        responseMetadata = await streamingProcessor.startResponseStream(
-          client, requestId, url, response.mimeType, response.headers, response.status
-        );
-      } catch (streamError) {
-        console.warn(`Error streaming response ${requestId}: ${streamError.message}`);
+      if (isImageFile(url)) {
+        // For images, just store metadata without streaming the body
         responseMetadata = {
           url,
-          error: streamError.message,
+          mimeType: response.mimeType,
+          headers: response.headers,
+          status: response.status,
+          skipped: 'image_file',
           timestamp: Date.now()
         };
+      } else {
+        try {
+          responseMetadata = await streamingProcessor.startResponseStream(
+            client, requestId, url, response.mimeType, response.headers, response.status
+          );
+        } catch (streamError) {
+          console.warn(`Error streaming response ${requestId}: ${streamError.message}`);
+          responseMetadata = {
+            url,
+            error: streamError.message,
+            timestamp: Date.now()
+          };
+        }
       }
       
       // Get function call correlation and link with response with error handling

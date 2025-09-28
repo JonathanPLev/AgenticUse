@@ -4,7 +4,8 @@
  * Generic search bar detection using regex patterns
  */
 async function detectSearchBarsGeneric(page) {
-  return await page.evaluate(() => {
+  return await Promise.race([
+    page.evaluate(() => {
     const searchElements = [];
     
     // Enhanced search patterns
@@ -54,14 +55,19 @@ async function detectSearchBarsGeneric(page) {
     });
     
     return searchElements;
-  });
+    }),
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Search detection timeout')), 10000)
+    )
+  ]);
 }
 
 /**
  * Generic chatbot detection using regex patterns
  */
 async function detectChatbotsGeneric(page) {
-  return await page.evaluate(() => {
+  return await Promise.race([
+    page.evaluate(() => {
     const chatbots = [];
     
     // Define patterns directly in browser context using RegExp constructor
@@ -145,7 +151,11 @@ async function detectChatbotsGeneric(page) {
     });
     
     return chatbots;
-  });
+    }),
+    new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Chatbot detection timeout')), 10000)
+    )
+  ]);
 }
 
 
@@ -294,17 +304,27 @@ async function performGenericDetection(page, options = {}) {
       await new Promise(resolve => setTimeout(resolve, 3000));
       
       // Scroll to trigger lazy loading
-      await page.evaluate(() => {
-        const body = document.body || document.documentElement;
-        if (body && body.scrollHeight) {
-          window.scrollTo(0, body.scrollHeight / 2);
-        }
-      });
+      await Promise.race([
+        page.evaluate(() => {
+          const body = document.body || document.documentElement;
+          if (body && body.scrollHeight) {
+            window.scrollTo(0, body.scrollHeight / 2);
+          }
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Scroll timeout')), 5000)
+        )
+      ]);
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      await page.evaluate(() => {
-        window.scrollTo(0, 0);
-      });
+      await Promise.race([
+        page.evaluate(() => {
+          window.scrollTo(0, 0);
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Scroll timeout')), 5000)
+        )
+      ]);
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     

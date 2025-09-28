@@ -11,6 +11,7 @@ class StreamingResponseProcessor {
     this.outputDir = outputDir;
     this.responseStreams = new Map(); // Track active streams
     this.responseMetadata = new Map(); // Track response metadata
+    this.responseBuffers = new Map(); // Buffer response data as it arrives
   }
 
   // Generate unique filename for response body
@@ -39,8 +40,23 @@ class StreamingResponseProcessor {
     return mimeMap[mimeType] || '.bin';
   }
 
+  // Buffer response data as it arrives from Network.dataReceived events
+  bufferResponseData(requestId, data, dataLength) {
+    if (!this.responseBuffers.has(requestId)) {
+      this.responseBuffers.set(requestId, []);
+    }
+    this.responseBuffers.get(requestId).push(data);
+  }
+
+  // Get buffered response data and clear buffer
+  getBufferedResponseData(requestId) {
+    const buffers = this.responseBuffers.get(requestId);
+    this.responseBuffers.delete(requestId);
+    return buffers ? buffers.join('') : null;
+  }
+
   // Start streaming a response body to disk
-  async startResponseStream(client, requestId, url, mimeType, headers, status) {
+  async startResponseStream(client, requestId, url, mimeType, headers, status, responseBody = null) {
     try {
       const filename = this.generateResponseFilename(requestId, url, mimeType);
       const filepath = path.join(this.outputDir, 'responses', filename);
@@ -72,23 +88,66 @@ class StreamingResponseProcessor {
         timestamp: Date.now()
       });
 
-      // Get response body and stream it
-      try {
-        const bodyResponse = await client.send('Network.getResponseBody', { requestId });
-        if (bodyResponse && bodyResponse.body) {
-          // Write body to stream in chunks to avoid memory buildup
-          const body = bodyResponse.body;
+      let bodyWritten = false;
+
+      // Try buffered response data first (from Network.dataReceived events)
+      const bufferedData = this.getBufferedResponseData(requestId);
+      if (bufferedData) {
+        try {
           const chunkSize = 64 * 1024; // 64KB chunks
-          
-          for (let i = 0; i < body.length; i += chunkSize) {
-            const chunk = body.substring(i, i + chunkSize);
+          for (let i = 0; i < bufferedData.length; i += chunkSize) {
+            const chunk = bufferedData.substring(i, i + chunkSize);
             writeStream.write(chunk);
             this.responseStreams.get(requestId).bytesWritten += chunk.length;
           }
+          bodyWritten = true;
+        } catch (error) {
+          console.warn(`Error writing buffered response data: ${error.message}`);
         }
-      } catch (bodyError) {
-        // Response body not available, write metadata only
-        writeStream.write(`[RESPONSE_BODY_NOT_AVAILABLE: ${bodyError.message}]`);
+      }
+
+      // Try to use provided response body second (from Network.responseReceived event)
+      if (!bodyWritten && responseBody) {
+        try {
+          const chunkSize = 64 * 1024; // 64KB chunks
+          for (let i = 0; i < responseBody.length; i += chunkSize) {
+            const chunk = responseBody.substring(i, i + chunkSize);
+            writeStream.write(chunk);
+            this.responseStreams.get(requestId).bytesWritten += chunk.length;
+          }
+          bodyWritten = true;
+        } catch (error) {
+          console.warn(`Error writing provided response body: ${error.message}`);
+        }
+      }
+
+      // Fallback: try to get response body via CDP (may fail for cached/streamed responses)
+      if (!bodyWritten) {
+        try {
+          const bodyResponse = await client.send('Network.getResponseBody', { requestId });
+          if (bodyResponse && bodyResponse.body) {
+            const body = bodyResponse.body;
+            const chunkSize = 64 * 1024; // 64KB chunks
+            
+            for (let i = 0; i < body.length; i += chunkSize) {
+              const chunk = body.substring(i, i + chunkSize);
+              writeStream.write(chunk);
+              this.responseStreams.get(requestId).bytesWritten += chunk.length;
+            }
+            bodyWritten = true;
+          }
+        } catch (bodyError) {
+          // Common for cached responses, redirects, failed requests, or large streaming responses
+          const errorInfo = {
+            error: bodyError.message,
+            url,
+            status,
+            mimeType,
+            timestamp: new Date().toISOString(),
+            note: 'Response body not available - common for cached, failed, redirect, or streaming responses'
+          };
+          writeStream.write(JSON.stringify(errorInfo, null, 2));
+        }
       }
 
       // Close stream
@@ -253,6 +312,7 @@ class StreamingResponseProcessor {
     
     this.responseStreams.clear();
     this.responseMetadata.clear();
+    this.responseBuffers.clear();
   }
 }
 
