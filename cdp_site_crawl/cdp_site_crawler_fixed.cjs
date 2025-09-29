@@ -164,11 +164,8 @@ const allQueues = [];
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
 
-        // Create a filesystem-safe slug from the URL
-        const slug = url
-          .replace(/(^\w+:|^)\//, '')      // strip protocol
-          .replace(/[^a-zA-Z0-9\-_.]/g, '_') // replace unsafe chars with underscores
-          .substring(0, 100);                 // limit length
+        // Create a clean domain-based slug from the URL
+        const slug = createCleanUrlSlug(url);
 
         const urlDir = path.join(OUTPUT_DIR, slug);
 
@@ -325,12 +322,34 @@ const allQueues = [];
 })();
 
 
-async function processSingleSite(browser, url, siteQueues) {
-  const slug = url
-    .replace(/(^\w+:|^)\//, '')
-    .replace(/[^a-zA-Z0-9\-_.]/g, '_')
-    .substring(0, 100);
+// Function to create clean domain-based slugs
+function createCleanUrlSlug(url) {
+  try {
+    // Remove protocol and www prefix, extract clean domain
+    let cleanUrl = url
+      .replace(/^https?:\/\//, '')  // Remove protocol
+      .replace(/^www\./, '')        // Remove www prefix
+      .split('/')[0]                // Get just the domain part
+      .split('?')[0]                // Remove query parameters
+      .split('#')[0];               // Remove fragments
+    
+    // Keep dots for domains, only replace truly unsafe characters
+    cleanUrl = cleanUrl
+      .replace(/[^a-zA-Z0-9\-_.]/g, '_')  // Replace unsafe chars but keep dots
+      .substring(0, 100);                  // Limit length
+    
+    return cleanUrl;
+  } catch (error) {
+    // Fallback to old method if parsing fails
+    return url
+      .replace(/(^\w+:|^)\//, '')
+      .replace(/[^a-zA-Z0-9\-_.]/g, '_')
+      .substring(0, 100);
+  }
+}
 
+async function processSingleSite(browser, url, siteQueues) {
+  const slug = createCleanUrlSlug(url);
   const urlDir = path.join(OUTPUT_DIR, slug);
   if (!fs.existsSync(urlDir)) fs.mkdirSync(urlDir, { recursive: true });
 

@@ -8,6 +8,32 @@ const { FunctionTracker } = require('./function_tracker.js');
 const { EnhancedNetworkTracer } = require('./enhanced_network_tracer.js');
 const { StreamingResponseProcessor } = require('./streaming_response_processor.js');
 
+// Function to create clean domain-based slugs
+function createCleanUrlSlug(url) {
+  try {
+    // Remove protocol and www prefix, extract clean domain
+    let cleanUrl = url
+      .replace(/^https?:\/\//, '')  // Remove protocol
+      .replace(/^www\./, '')        // Remove www prefix
+      .split('/')[0]                // Get just the domain part
+      .split('?')[0]                // Remove query parameters
+      .split('#')[0];               // Remove fragments
+    
+    // Keep dots for domains, only replace truly unsafe characters
+    cleanUrl = cleanUrl
+      .replace(/[^a-zA-Z0-9\-_.]/g, '_')  // Replace unsafe chars but keep dots
+      .substring(0, 100);                  // Limit length
+    
+    return cleanUrl;
+  } catch (error) {
+    // Fallback to old method if parsing fails
+    return url
+      .replace(/(^\w+:|^)\//, '')
+      .replace(/[^a-zA-Z0-9\-_.]/g, '_')
+      .substring(0, 100);
+  }
+}
+
 // Configuration for small in-memory data only (large content is streamed to disk)
 const LOG_LIMITS = {
   MAX_CONSOLE_ARGS: 10000,
@@ -168,7 +194,7 @@ async function enhancedInstrumentPage(page, queues) {
   
   // Initialize streaming processor for the current site
   const currentUrl = page.url();
-  const urlSlug = currentUrl.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 50);
+  const urlSlug = createCleanUrlSlug(currentUrl);
   const siteOutputDir = path.join('data', urlSlug);
   const streamingProcessor = new StreamingResponseProcessor(siteOutputDir);
   

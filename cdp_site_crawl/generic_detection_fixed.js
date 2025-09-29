@@ -303,43 +303,77 @@ async function performGenericDetection(page, options = {}) {
       console.log('Waiting for dynamic content to load...');
       await new Promise(resolve => setTimeout(resolve, 3000));
       
-      // Scroll to trigger lazy loading
-      await Promise.race([
-        page.evaluate(() => {
-          const body = document.body || document.documentElement;
-          if (body && body.scrollHeight) {
-            window.scrollTo(0, body.scrollHeight / 2);
-          }
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Scroll timeout')), 5000)
-        )
-      ]);
+      // Scroll to trigger lazy loading with error handling
+      try {
+        await Promise.race([
+          page.evaluate(() => {
+            try {
+              const body = document.body || document.documentElement;
+              if (body && body.scrollHeight) {
+                window.scrollTo(0, body.scrollHeight / 2);
+              }
+            } catch (e) {
+              // Ignore scroll errors on broken pages
+            }
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Scroll timeout')), 10000)
+          )
+        ]);
+      } catch (scrollError) {
+        console.warn('Scroll operation failed:', scrollError.message);
+      }
+      
       await new Promise(resolve => setTimeout(resolve, 1000));
       
-      await Promise.race([
-        page.evaluate(() => {
-          window.scrollTo(0, 0);
-        }),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Scroll timeout')), 5000)
-        )
-      ]);
+      try {
+        await Promise.race([
+          page.evaluate(() => {
+            try {
+              window.scrollTo(0, 0);
+            } catch (e) {
+              // Ignore scroll errors on broken pages
+            }
+          }),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Scroll timeout')), 10000)
+          )
+        ]);
+      } catch (scrollError) {
+        console.warn('Scroll reset failed:', scrollError.message);
+      }
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
     
-    // Detect search bars
-    const searchElements = await detectSearchBarsGeneric(page);
-    console.log(`Found ${searchElements.length} search elements using generic patterns`);
+    // Detect search bars with error handling
+    let searchElements = [];
+    try {
+      searchElements = await detectSearchBarsGeneric(page);
+      console.log(`Found ${searchElements.length} search elements using generic patterns`);
+    } catch (searchError) {
+      console.warn('Search detection failed:', searchError.message);
+      searchElements = [];
+    }
     
-    // Detect chatbots in main frame
-    const mainFrameChatbots = await detectChatbotsGeneric(page);
-    console.log(`Found ${mainFrameChatbots.length} chatbot indicators using generic patterns`);
+    // Detect chatbots in main frame with error handling
+    let mainFrameChatbots = [];
+    try {
+      mainFrameChatbots = await detectChatbotsGeneric(page);
+      console.log(`Found ${mainFrameChatbots.length} chatbot indicators using generic patterns`);
+    } catch (chatbotError) {
+      console.warn('Chatbot detection failed:', chatbotError.message);
+      mainFrameChatbots = [];
+    }
     
-    // Detect chatbots in iframes
+    // Detect chatbots in iframes with error handling
     let iframeChatbots = [];
     if (enableIframeDetection) {
-      iframeChatbots = await detectChatbotsInIframes(page);
+      try {
+        iframeChatbots = await detectChatbotsInIframes(page);
+      } catch (iframeError) {
+        console.warn('Iframe chatbot detection failed:', iframeError.message);
+        iframeChatbots = [];
+      }
     }
     
     const totalIframeChatbots = iframeChatbots.reduce((total, frame) => total + frame.chatbots.length, 0);
