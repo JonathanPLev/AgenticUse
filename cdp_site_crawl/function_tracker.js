@@ -213,242 +213,195 @@ class FunctionTracker {
           }));
         };
 
-        // Enhanced function hijacking with stack trace capture
+        // Safe function wrapper with recursion prevention
         window.__wrapFunction = function(obj, funcName, originalFunc) {
-          return function(...args) {
-            const callId = ++window.__functionTracker.callId;
-            const serializedParams = window.__serializeParams(args);
-            
-            // HIJACK: Throw error to capture complete stack trace with variable context
-            let completeStackTrace = [];
-            let callChainData = [];
-            let variableContext = {};
-            
-            try {
-              throw new Error('STACK_TRACE_CAPTURE');
-            } catch (e) {
-              completeStackTrace = e.stack.split('\n');
-              
-              // Parse stack trace and attempt to capture variable context
-              callChainData = completeStackTrace.slice(1).map((line, index) => {
-                const match = line.match(/at\s+(.*)\s+\((.*):(\d+):(\d+)\)/) || 
-                             line.match(/at\s+(.*):(.*):(\d+):(\d+)/) ||
-                             line.match(/at\s+(.*)/); 
-                
-                const frameData = {
-                  level: index,
-                  functionName: match ? (match[1] || 'anonymous') : 'unknown',
-                  fileName: match ? (match[2] || 'unknown') : 'unknown',
-                  lineNumber: match ? (parseInt(match[3]) || 0) : 0,
-                  columnNumber: match ? (parseInt(match[4]) || 0) : 0,
-                  rawLine: line.trim(),
-                  variables: {}
-                };
-                
-                // Attempt to capture local variables (limited by JS security)
-                try {
-                  // Capture arguments object if available
-                  if (typeof arguments !== 'undefined') {
-                    frameData.variables.arguments = window.__serializeValue(arguments, 0, 2);
-                  }
-                  
-                  // Capture 'this' context
-                  if (this !== undefined && this !== null) {
-                    frameData.variables.thisContext = window.__serializeValue(this, 0, 1);
-                  }
-                  
-                  // Try to capture some global context
-                  if (typeof window !== 'undefined' && index === 0) {
-                    frameData.variables.globalContext = {
-                      url: window.location?.href,
-                      userAgent: navigator?.userAgent?.substring(0, 100),
-                      timestamp: Date.now()
-                    };
-                  }
-                } catch (varError) {
-                  frameData.variables.captureError = varError.message;
-                }
-                
-                return frameData;
-              }).filter(item => !item.functionName.includes('__wrapFunction') && 
-                              !item.functionName.includes('__serializeValue')); // Remove our wrappers
+          // Prevent wrapping already wrapped functions
+          if (originalFunc.__isWrapped) {
+            return originalFunc;
+          }
+          
+          const wrappedFunction = function(...args) {
+            // Prevent recursive wrapping calls
+            if (wrappedFunction.__executing) {
+              return originalFunc.apply(this, args);
             }
             
-            // Log function call with complete stack trace data
-            const callInfo = {
-              callId,
-              functionName: funcName,
-              objectName: obj.constructor ? obj.constructor.name : 'unknown',
-              parameters: serializedParams,
-              completeStackTrace: completeStackTrace, // Full raw stack
-              callChain: callChainData, // Parsed call hierarchy
-              calledFrom: callChainData[0] || { functionName: 'unknown' },
-              callDepth: callChainData.length,
-              url: window.location.href,
-              timestamp: Date.now(),
-              triggeredNetworkRequests: [],
-              dataFlow: {
-                inputData: serializedParams,
-                executionContext: {
-                  thisValue: window.__serializeValue(this, 0, 2),
-                  arguments: {
-                    count: args.length,
-                    values: serializedParams
-                  },
-                  scope: typeof window !== 'undefined' ? 'window' : 'unknown',
-                  localVariables: variableContext
-                },
-                callChainVariables: callChainData.map(frame => ({
-                  level: frame.level,
-                  functionName: frame.functionName,
-                  variables: frame.variables
-                }))
-              }
-            };
-
-            window.__functionTracker.calls.push(callInfo);
-
+            // Safety check - ensure tracker exists
+            if (!window.__functionTracker || !window.__functionTracker.calls) {
+              return originalFunc.apply(this, args);
+            }
+            
+            wrappedFunction.__executing = true;
+            
             try {
-              // Track network requests that happen during this function call
-              const requestsBefore = new Set(window.__functionTracker.activeNetworkRequests.keys());
+              const callId = ++window.__functionTracker.callId;
               
+              // Simplified parameter capture to avoid recursion
+              let serializedParams = [];
+              try {
+                serializedParams = args.map((arg, index) => ({
+                  paramIndex: index,
+                  type: typeof arg,
+                  value: arg !== null && arg !== undefined ? String(arg).substring(0, 100) : arg,
+                  isFunction: typeof arg === 'function',
+                  isObject: typeof arg === 'object' && arg !== null
+                }));
+              } catch (e) {
+                serializedParams = [{ error: 'Parameter serialization failed' }];
+              }
+              
+              // Simplified stack trace without deep introspection
+              let stackTrace = [];
+              try {
+                const stack = new Error().stack;
+                stackTrace = stack ? stack.split('\n').slice(2, 7) : []; // Limit to 5 frames
+              } catch (e) {
+                stackTrace = ['Stack trace unavailable'];
+              }
+              
+              // Log function call with minimal data to prevent recursion
+              const callInfo = {
+                callId,
+                functionName: funcName,
+                objectName: obj && obj.constructor ? obj.constructor.name : 'unknown',
+                parameters: serializedParams,
+                stackTrace: stackTrace,
+                url: window.location.href,
+                timestamp: Date.now(),
+                success: true
+              };
+
+              // Add to calls array safely
+              if (window.__functionTracker.calls) {
+                window.__functionTracker.calls.push(callInfo);
+              }
+
               // Call original function
               const result = originalFunc.apply(this, args);
               
-              // Capture data flow output
-              callInfo.dataFlow.outputData = {
-                type: typeof result,
-                value: String(result),
-                isPromise: result && typeof result.then === 'function'
-              };
-              
-              // Check for new network requests triggered by this function
-              setTimeout(() => {
-                const requestsAfter = new Set(window.__functionTracker.activeNetworkRequests.keys());
-                const newRequests = [...requestsAfter].filter(id => !requestsBefore.has(id));
-                if (newRequests.length > 0) {
-                  callInfo.triggeredNetworkRequests = newRequests;
-                  callInfo.dataFlow.networkActivity = {
-                    requestCount: newRequests.length,
-                    requestIds: newRequests
-                  };
-                  // Map these requests back to this function call
-                  newRequests.forEach(requestId => {
-                    window.__functionTracker.functionToRequestMap.set(requestId, callId);
-                  });
-                }
-              }, 100);
+              // Capture basic result info
+              try {
+                callInfo.resultType = typeof result;
+                callInfo.isPromise = result && typeof result.then === 'function';
+              } catch (e) {
+                // Ignore result capture errors
+              }
               
               return result;
             } catch (error) {
-              callInfo.success = false;
-              callInfo.error = error.message;
-              callInfo.errorStack = error.stack;
-              
-              // Capture error context with stack trace
-              callInfo.dataFlow.errorContext = {
-                errorType: error.constructor.name,
-                errorMessage: error.message,
-                errorStack: error.stack,
-                thrownAt: Date.now(),
-                functionState: {
-                  parameters: serializedParams,
-                  callChain: callChainData
+              // Log error without complex serialization
+              try {
+                if (window.__functionTracker && window.__functionTracker.calls) {
+                  const errorInfo = {
+                    callId: window.__functionTracker.callId,
+                    functionName: funcName,
+                    error: error.message,
+                    timestamp: Date.now(),
+                    success: false
+                  };
+                  window.__functionTracker.calls.push(errorInfo);
                 }
-              };
+              } catch (e) {
+                // Ignore logging errors
+              }
               
               throw error;
+            } finally {
+              wrappedFunction.__executing = false;
             }
           };
+          
+          // Mark as wrapped to prevent double-wrapping
+          wrappedFunction.__isWrapped = true;
+          wrappedFunction.__originalFunction = originalFunc;
+          
+          return wrappedFunction;
         };
 
-        // Comprehensive function hijacking for ALL functions
+        // Safe function hijacking - avoid core Object methods and infinite recursion
         const hijackAllFunctions = function() {
           // Track what we've already hijacked to avoid infinite loops
           const hijacked = window.__functionTracker.hijackedFunctions;
           const originals = window.__functionTracker.originalFunctions;
           
-          // Hijack function constructor to catch dynamically created functions
-          if (!hijacked.has('Function.constructor')) {
-            const originalFunction = window.Function;
-            window.Function = function(...args) {
-              const func = originalFunction.apply(this, args);
-              const wrappedFunc = window.__wrapFunction(window, 'dynamic_function', func);
-              hijacked.add(`dynamic_${Date.now()}`);
-              return wrappedFunc;
+          // Store original Object methods to avoid corruption
+          if (!window.__originalObjectMethods) {
+            window.__originalObjectMethods = {
+              defineProperty: Object.defineProperty,
+              getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+              getOwnPropertyNames: Object.getOwnPropertyNames,
+              getPrototypeOf: Object.getPrototypeOf
             };
-            hijacked.add('Function.constructor');
           }
           
-          // Hijack eval to catch eval'd functions
-          if (!hijacked.has('eval') && typeof window.eval === 'function') {
-            originals.set('eval', window.eval);
-            window.eval = window.__wrapFunction(window, 'eval', originals.get('eval'));
-            hijacked.add('eval');
-          }
+          // NEVER hijack core Object methods - this causes infinite recursion
+          const forbiddenMethods = new Set([
+            'Object.defineProperty',
+            'Object.getOwnPropertyDescriptor', 
+            'Object.getOwnPropertyNames',
+            'Object.getPrototypeOf',
+            'Object.prototype.toString',
+            'Object.prototype.valueOf',
+            'Object.prototype.hasOwnProperty',
+            'Function.prototype.call',
+            'Function.prototype.apply',
+            'Function.prototype.bind'
+          ]);
           
-          // Comprehensive global object hijacking
-          const globalTargets = [
-            { obj: window, name: 'window', deep: false },
-            { obj: document, name: 'document', deep: true },
-            { obj: XMLHttpRequest.prototype, name: 'XMLHttpRequest.prototype', deep: true },
-            { obj: EventTarget.prototype, name: 'EventTarget.prototype', deep: true },
-            { obj: Element.prototype, name: 'Element.prototype', deep: true },
-            { obj: Node.prototype, name: 'Node.prototype', deep: true },
-            { obj: HTMLElement.prototype, name: 'HTMLElement.prototype', deep: true },
-            { obj: Array.prototype, name: 'Array.prototype', deep: true },
-            { obj: Object.prototype, name: 'Object.prototype', deep: false }, // Be careful with Object.prototype
-            { obj: Promise.prototype, name: 'Promise.prototype', deep: true }
-          ];
-
           // Hijack fetch separately (it's a function, not a method)
           if (!hijacked.has('fetch') && typeof window.fetch === 'function') {
             originals.set('fetch', window.fetch);
             window.fetch = window.__wrapFunction(window, 'fetch', originals.get('fetch'));
             hijacked.add('fetch');
           }
+          
+          // Safe targets - avoid Object.prototype and other dangerous objects
+          const safeTargets = [
+            { obj: XMLHttpRequest.prototype, name: 'XMLHttpRequest.prototype', methods: ['open', 'send', 'setRequestHeader'] },
+            { obj: EventTarget.prototype, name: 'EventTarget.prototype', methods: ['addEventListener', 'removeEventListener', 'dispatchEvent'] },
+            { obj: Element.prototype, name: 'Element.prototype', methods: ['querySelector', 'querySelectorAll', 'getAttribute', 'setAttribute'] },
+            { obj: document, name: 'document', methods: ['querySelector', 'querySelectorAll', 'getElementById', 'createElement'] }
+          ];
 
-          globalTargets.forEach(({ obj, name, deep }) => {
+          safeTargets.forEach(({ obj, name, methods }) => {
             if (!obj) return;
             
-            try {
-              const props = deep ? 
-                [...Object.getOwnPropertyNames(obj), ...Object.getOwnPropertyNames(Object.getPrototypeOf(obj) || {})] :
-                Object.getOwnPropertyNames(obj);
+            methods.forEach(methodName => {
+              const hijackKey = `${name}.${methodName}`;
+              if (hijacked.has(hijackKey) || forbiddenMethods.has(hijackKey)) return;
               
-              props.forEach(prop => {
-                const hijackKey = `${name}.${prop}`;
-                if (hijacked.has(hijackKey)) return;
-                
-                try {
-                  const descriptor = Object.getOwnPropertyDescriptor(obj, prop);
-                  if (descriptor && typeof descriptor.value === 'function' && descriptor.configurable) {
-                    const originalFunc = descriptor.value;
-                    originals.set(hijackKey, originalFunc);
-                    const wrappedFunc = window.__wrapFunction(obj, hijackKey, originalFunc);
-                    
-                    Object.defineProperty(obj, prop, {
-                      ...descriptor,
-                      value: wrappedFunc
-                    });
-                    
-                    hijacked.add(hijackKey);
-                  }
-                } catch (e) {
-                  // Skip properties that can't be hijacked (non-configurable, etc.)
+              try {
+                if (typeof obj[methodName] === 'function') {
+                  const originalFunc = obj[methodName];
+                  originals.set(hijackKey, originalFunc);
+                  const wrappedFunc = window.__wrapFunction(obj, hijackKey, originalFunc);
+                  
+                  // Use original defineProperty to avoid recursion
+                  window.__originalObjectMethods.defineProperty(obj, methodName, {
+                    value: wrappedFunc,
+                    writable: true,
+                    configurable: true,
+                    enumerable: false
+                  });
+                  
+                  hijacked.add(hijackKey);
                 }
-              });
-            } catch (e) {
-              // Skip objects that can't be introspected
-            }
+              } catch (e) {
+                // Skip methods that can't be hijacked
+              }
+            });
           });
           
-          // Hijack setTimeout, setInterval, requestAnimationFrame
-          ['setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback'].forEach(funcName => {
+          // Hijack specific timing functions safely
+          ['setTimeout', 'setInterval', 'requestAnimationFrame'].forEach(funcName => {
             if (!hijacked.has(funcName) && typeof window[funcName] === 'function') {
-              originals.set(funcName, window[funcName]);
-              window[funcName] = window.__wrapFunction(window, funcName, originals.get(funcName));
-              hijacked.add(funcName);
+              try {
+                originals.set(funcName, window[funcName]);
+                window[funcName] = window.__wrapFunction(window, funcName, originals.get(funcName));
+                hijacked.add(funcName);
+              } catch (e) {
+                // Skip if can't hijack
+              }
             }
           });
         };
@@ -456,153 +409,88 @@ class FunctionTracker {
         // Initialize comprehensive hijacking
         hijackAllFunctions();
         
-        // Monitor for new functions being added to the global scope
+        // Minimal monitoring to avoid excessive re-hijacking
         const observeNewFunctions = function() {
-          // Re-hijack periodically to catch dynamically added functions
-          setInterval(hijackAllFunctions, 2000);
+          // Only re-hijack occasionally to avoid performance issues
+          const rehijackInterval = setInterval(() => {
+            try {
+              hijackAllFunctions();
+            } catch (e) {
+              console.warn('Re-hijack failed:', e.message);
+            }
+          }, 10000); // Reduced frequency to 10 seconds
           
-          // Use MutationObserver to detect script additions
-          if (typeof MutationObserver !== 'undefined') {
-            const observer = new MutationObserver((mutations) => {
-              mutations.forEach((mutation) => {
-                if (mutation.type === 'childList') {
-                  mutation.addedNodes.forEach((node) => {
-                    if (node.tagName === 'SCRIPT') {
-                      // New script added, re-hijack after a delay
-                      setTimeout(hijackAllFunctions, 100);
-                    }
-                  });
-                }
-              });
-            });
-            
-            observer.observe(document, {
-              childList: true,
-              subtree: true
-            });
-          }
+          // Clear interval after 2 minutes to prevent long-running issues
+          setTimeout(() => {
+            clearInterval(rehijackInterval);
+          }, 120000);
         };
         
-        // Start observing
+        // Start observing only after DOM is ready
         if (document.readyState === 'loading') {
           document.addEventListener('DOMContentLoaded', observeNewFunctions);
         } else {
-          observeNewFunctions();
+          setTimeout(observeNewFunctions, 1000); // Delay initial execution
         }
 
-        // Track event listeners with data flow focus
+        // Simplified event listener tracking to avoid recursion
         const originalAddEventListener = EventTarget.prototype.addEventListener;
         EventTarget.prototype.addEventListener = function(type, listener, options) {
+          // Skip wrapping if already wrapped or if it's our own tracking
+          if (listener.__isWrapped || typeof listener !== 'function') {
+            return originalAddEventListener.call(this, type, listener, options);
+          }
+          
           const listenerId = ++window.__functionTracker.callId;
           
-          // Wrap the listener function with comprehensive tracking
+          // Simple wrapper to avoid complex serialization
           const wrappedListener = function(event) {
-            const eventCallId = ++window.__functionTracker.callId;
-            
-            // Capture complete event context and variables
-            let eventStackTrace = [];
-            let eventVariables = {};
-            
-            try {
-              throw new Error('EVENT_STACK_CAPTURE');
-            } catch (e) {
-              eventStackTrace = e.stack.split('\n').slice(1);
-              
-              // Capture event-specific variables
-              eventVariables = {
-                eventObject: window.__serializeValue(event, 0, 2),
-                thisContext: window.__serializeValue(this, 0, 1),
-                listenerFunction: window.__serializeValue(listener, 0, 1),
-                globalState: {
-                  url: window.location?.href,
-                  timestamp: Date.now(),
-                  documentReadyState: document?.readyState
-                }
-              };
+            // Prevent recursive calls
+            if (wrappedListener.__executing) {
+              return listener.call(this, event);
             }
             
-            // Log event listener execution with complete data flow
-            const eventInfo = {
-              callId: eventCallId,
-              listenerId: listenerId,
-              eventType: type,
-              target: this.tagName || this.constructor.name,
-              eventData: window.__serializeValue({
-                type: event.type,
-                target: event.target,
-                currentTarget: event.currentTarget,
-                timestamp: event.timeStamp || Date.now(),
-                coordinates: event.clientX !== undefined ? { x: event.clientX, y: event.clientY } : null,
-                key: event.key || null,
-                button: event.button !== undefined ? event.button : null,
-                detail: event.detail,
-                bubbles: event.bubbles,
-                cancelable: event.cancelable
-              }, 0, 2),
-              completeStackTrace: eventStackTrace,
-              eventVariables: eventVariables,
-              stackTrace: window.__getStackTrace().slice(0, 5),
-              url: window.location.href,
-              timestamp: Date.now(),
-              triggeredNetworkRequests: [],
-              dataFlow: {
-                inputEvent: eventVariables.eventObject,
-                executionContext: eventVariables.thisContext,
-                listenerDetails: eventVariables.listenerFunction
-              }
-            };
-
-            window.__functionTracker.eventListeners.push(eventInfo);
-
+            wrappedListener.__executing = true;
+            
             try {
-              // Track network requests triggered by this event
-              const requestsBefore = new Set(window.__functionTracker.activeNetworkRequests.keys());
+              const eventCallId = ++window.__functionTracker.callId;
               
-              const result = listener.call(this, event);
-              
-              // Capture return value
-              eventInfo.dataFlow.outputData = window.__serializeValue(result, 0, 1);
-              
-              // Check for new network requests triggered by this event
-              setTimeout(() => {
-                const requestsAfter = new Set(window.__functionTracker.activeNetworkRequests.keys());
-                const newRequests = [...requestsAfter].filter(id => !requestsBefore.has(id));
-                if (newRequests.length > 0) {
-                  eventInfo.triggeredNetworkRequests = newRequests;
-                  eventInfo.dataFlow.networkActivity = {
-                    requestCount: newRequests.length,
-                    requestIds: newRequests
-                  };
-                  newRequests.forEach(requestId => {
-                    window.__functionTracker.functionToRequestMap.set(requestId, eventCallId);
+              // Simple event info without deep serialization
+              const eventInfo = {
+                callId: eventCallId,
+                listenerId: listenerId,
+                eventType: type,
+                target: this.tagName || this.constructor.name,
+                timestamp: Date.now(),
+                url: window.location.href
+              };
+
+              if (window.__functionTracker.eventListeners) {
+                window.__functionTracker.eventListeners.push(eventInfo);
+              }
+
+              return listener.call(this, event);
+            } catch (error) {
+              // Simple error logging
+              try {
+                if (window.__functionTracker.eventListeners) {
+                  window.__functionTracker.eventListeners.push({
+                    callId: window.__functionTracker.callId,
+                    eventType: type,
+                    error: error.message,
+                    timestamp: Date.now()
                   });
                 }
-              }, 100);
-              
-              return result;
-            } catch (error) {
-              eventInfo.error = error.message;
-              eventInfo.errorStack = error.stack;
-              eventInfo.dataFlow.errorContext = {
-                errorType: error.constructor.name,
-                errorMessage: error.message,
-                errorStack: error.stack,
-                eventState: eventVariables
-              };
+              } catch (e) {
+                // Ignore logging errors
+              }
               throw error;
+            } finally {
+              wrappedListener.__executing = false;
             }
           };
 
-          // Store listener info
-          window.__functionTracker.eventListeners.push({
-            callId: listenerId,
-            type: type,
-            target: this.tagName || this.constructor.name,
-            listener: listener.name || 'anonymous',
-            options: options,
-            timestamp: Date.now()
-          });
-
+          wrappedListener.__isWrapped = true;
           return originalAddEventListener.call(this, type, wrappedListener, options);
         };
       });
