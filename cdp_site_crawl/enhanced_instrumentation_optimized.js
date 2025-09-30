@@ -203,14 +203,20 @@ async function enhancedInstrumentPage(page, queues) {
   const functionTracker = new FunctionTracker(page, functionTrackingQueue, networkQueue);
   await functionTracker.initialize();
   
-  // Initialize function injection (true code injection for internal execution tracking)
+  // Set up wrapper-based function tracking (primary method)
+  console.log('Setting up wrapper-based function tracking...');
+  await functionTracker.trackCommonFunctions();
+  await functionTracker.setupPeriodicCollection();
+  console.log('Wrapper-based function tracking initialized successfully');
+  
+  // Initialize function injection (secondary method for user-defined functions)
   const functionInjector = new FunctionInjector(functionTrackingQueue);
   await functionInjector.initialize(page);
   
-  // Inject tracking code into common functions for internal execution visibility
+  // Try injection into user-defined functions (will skip native functions)
   console.log('Starting function injection for internal execution tracking...');
   const injectionResults = await functionInjector.injectIntoCommonFunctions(page);
-  console.log(`Function injection completed: ${injectionResults.filter(r => r.success).length}/${injectionResults.length} successful`);
+  console.log(`Function injection completed: ${injectionResults.filter(r => r.success).length}/${injectionResults.length} successful (native functions expected to fail)`);
   
   // Initialize enhanced network tracer with error-based correlation
   const networkTracer = new EnhancedNetworkTracer(page, networkQueue);
@@ -781,12 +787,21 @@ async function enhancedInstrumentPage(page, queues) {
     client,
     cleanup,
     functionTracker,
+    functionInjector,
     getFrameTracker: () => frameTracker,
     getProcessedFrames: () => processedFrames,
     getNetworkRequestCount: () => networkRequestCount,
     getDynamicContentStatus: () => dynamicContentDetected,
     getMeaningfulDomains: () => Array.from(meaningfulDomains),
-    getFunctionTrackingReport: () => functionTracker.getTrackingReport(),
+    getFunctionTrackingReport: () => {
+      const baseReport = functionTracker.getTrackingReport();
+      const functionSources = functionInjector.getFunctionSources();
+      return {
+        ...baseReport,
+        discoveredFunctionSources: functionSources,
+        discoveredFunctionCount: Object.keys(functionSources).length
+      };
+    },
     getStreamingStats: () => streamingProcessor.getMemoryStats()
   };
 }

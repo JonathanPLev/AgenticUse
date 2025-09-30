@@ -347,20 +347,37 @@ async function createFreshTab(browser, url, instrumentPage, queues) {
     throw new Error(`Invalid URL format: ${validUrl}`);
   }
 
-  // Navigate to the URL
-  await newTab.goto(validUrl, { 
-    waitUntil: 'domcontentloaded', 
-    timeout: 30000 
-  });
+  // Navigate to the URL with multiple fallback strategies
+  let navigationSuccess = false;
+  const strategies = [
+    { waitUntil: 'domcontentloaded', timeout: 15000 },
+    { waitUntil: 'networkidle2', timeout: 20000 },
+    { waitUntil: 'load', timeout: 10000 }
+  ];
 
-  // Wait for page to settle
-  try {
-    await newTab.waitForNetworkIdle({ 
-      idleTime: 1000, 
-      timeout: 8000 
-    });
-  } catch (e) {
-    // Network idle timeout is acceptable
+  for (const strategy of strategies) {
+    try {
+      await newTab.goto(validUrl, strategy);
+      navigationSuccess = true;
+      break;
+    } catch (navError) {
+      console.warn(`Navigation strategy ${strategy.waitUntil} failed: ${navError.message}`);
+      if (strategy === strategies[strategies.length - 1]) {
+        throw new Error(`All navigation strategies failed for ${validUrl}`);
+      }
+    }
+  }
+
+  if (navigationSuccess) {
+    // Wait for page to settle (optional)
+    try {
+      await newTab.waitForNetworkIdle({ 
+        idleTime: 500, 
+        timeout: 3000 
+      });
+    } catch (e) {
+      // Network idle timeout is acceptable
+    }
   }
 
   return newTab;
