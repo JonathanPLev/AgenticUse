@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { QueueManager } = require('./queue_manager.js');
 const { FunctionTracker } = require('./function_tracker.js');
+const { FunctionInjector } = require('./function_injector.js');
 const { EnhancedNetworkTracer } = require('./enhanced_network_tracer.js');
 const { StreamingResponseProcessor } = require('./streaming_response_processor.js');
 
@@ -198,9 +199,18 @@ async function enhancedInstrumentPage(page, queues) {
   const siteOutputDir = path.join('data', urlSlug);
   const streamingProcessor = new StreamingResponseProcessor(siteOutputDir);
   
-  // Initialize function tracking
+  // Initialize function tracking (wrapper-based)
   const functionTracker = new FunctionTracker(page, functionTrackingQueue, networkQueue);
   await functionTracker.initialize();
+  
+  // Initialize function injection (true code injection for internal execution tracking)
+  const functionInjector = new FunctionInjector(functionTrackingQueue);
+  await functionInjector.initialize(page);
+  
+  // Inject tracking code into common functions for internal execution visibility
+  console.log('Starting function injection for internal execution tracking...');
+  const injectionResults = await functionInjector.injectIntoCommonFunctions(page);
+  console.log(`Function injection completed: ${injectionResults.filter(r => r.success).length}/${injectionResults.length} successful`);
   
   // Initialize enhanced network tracer with error-based correlation
   const networkTracer = new EnhancedNetworkTracer(page, networkQueue);
