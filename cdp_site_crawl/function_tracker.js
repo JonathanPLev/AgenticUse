@@ -19,6 +19,108 @@ class FunctionTracker {
     this.networkRequestMap = new Map();
     this.eventListenerMap = new Map();
     this.functionCallId = 0;
+    this.useInjection = true; // Enable injection-based tracking
+  }
+
+  /**
+   * Inject tracking code directly into function bodies
+   * NOTE: This is disabled by default as the wrapper system is more reliable
+   */
+  async injectIntoFunction(functionPath) {
+    return await this.page.evaluate((path) => {
+      try {
+        const pathParts = path.split('.');
+        let obj = window;
+        
+        for (let i = 0; i < pathParts.length - 1; i++) {
+          obj = obj[pathParts[i]];
+          if (!obj) return { success: false, error: 'Path not found' };
+        }
+        
+        const funcName = pathParts[pathParts.length - 1];
+        const originalFunc = obj[funcName];
+        
+        if (typeof originalFunc !== 'function') {
+          return { success: false, error: 'Not a function' };
+        }
+
+        // Skip if already wrapped or injected
+        if (originalFunc.__isWrapped || originalFunc.__isInjected) {
+          return { success: false, error: 'Already wrapped or injected' };
+        }
+
+        // Store original
+        if (!window.__injectedFunctions) {
+          window.__injectedFunctions = new Map();
+        }
+        
+        // Check if it's a native function - can't inject into those
+        const originalSource = originalFunc.toString();
+        if (originalSource.includes('[native code]')) {
+          return { success: false, error: 'Cannot inject into native function' };
+        }
+        
+        window.__injectedFunctions.set(path, originalFunc);
+
+        // For complex functions, use wrapper approach instead
+        // This is more reliable than trying to parse and rewrite
+        const wrappedFunc = function(...args) {
+          try {
+            if (window.__functionTracker && window.__functionTracker.callId !== undefined) {
+              const __callId = ++window.__functionTracker.callId;
+              const __stackError = new Error();
+              if (window.__functionTracker.calls) {
+                window.__functionTracker.calls.push({
+                  type: 'injected_internal',
+                  callId: __callId,
+                  functionName: path,
+                  arguments: Array.from(args).map((arg, i) => ({
+                    index: i,
+                    type: typeof arg,
+                    value: typeof arg === 'object' ? JSON.stringify(arg, null, 2).substring(0, 1000) : String(arg).substring(0, 500)
+                  })),
+                  stackTrace: __stackError.stack ? __stackError.stack.split('\n') : [],
+                  timestamp: Date.now(),
+                  url: window.location.href
+                });
+              }
+            }
+          } catch(__e) { /* Ignore tracking errors */ }
+          
+          return originalFunc.apply(this, args);
+        };
+        
+        // Mark as injected
+        wrappedFunc.__isInjected = true;
+        wrappedFunc.__originalFunction = originalFunc;
+        
+        // Copy properties
+        Object.getOwnPropertyNames(originalFunc).forEach(prop => {
+          try {
+            if (prop !== 'length' && prop !== 'name' && prop !== 'prototype') {
+              wrappedFunc[prop] = originalFunc[prop];
+            }
+          } catch (e) {}
+        });
+
+        // Replace
+        obj[funcName] = wrappedFunc;
+
+        return { 
+          success: true, 
+          path: path,
+          method: 'wrapper',
+          originalLength: originalSource.length
+        };
+
+      } catch (error) {
+        return { 
+          success: false, 
+          error: error.message,
+          stack: error.stack
+        };
+      }
+    }, functionPath);
   }
 
   /**
@@ -26,6 +128,9 @@ class FunctionTracker {
    */
   async initialize() {
     try {
+      // Note: We don't inject into common functions at initialization
+      // The wrapper system handles this more reliably
+      
       // Inject the function tracking script into the page
       await this.page.evaluateOnNewDocument(() => {
         // Persistent storage functions
@@ -78,9 +183,9 @@ class FunctionTracker {
             hijackedFunctions: new Set(), // Track what we've already hijacked
             originalFunctions: new Map(), // Store original function references
             variableCapture: {
-              maxDepth: 3, // How deep to serialize objects
-              maxArrayLength: 10, // Max array elements to capture
-              maxStringLength: 1000 // Max string length to capture
+              maxDepth: 5, // Increased depth for better object capture
+              maxArrayLength: 100, // Capture more array elements
+              maxStringLength: 50000 // Capture full strings and function bodies
             }
           };
           
@@ -135,9 +240,9 @@ class FunctionTracker {
               return {
                 type: 'function',
                 name: value.name || 'anonymous',
-                source: value.toString().substring(0, config.maxStringLength),
+                source: value.toString(), // Capture full function source
                 prototype: value.prototype ? Object.getOwnPropertyNames(value.prototype) : [],
-                properties: Object.getOwnPropertyNames(value).slice(0, 10)
+                properties: Object.getOwnPropertyNames(value)
               };
             }
             
@@ -172,7 +277,7 @@ class FunctionTracker {
                 properties: {}
               };
               
-              const keys = Object.getOwnPropertyNames(value).slice(0, 20);
+              const keys = Object.getOwnPropertyNames(value); // Capture all properties
               for (const key of keys) {
                 try {
                   obj.properties[key] = window.__serializeValue(value[key], depth + 1, maxDepth);
@@ -187,9 +292,9 @@ class FunctionTracker {
             if (type === 'string') {
               return {
                 type: 'string',
-                value: value.substring(0, config.maxStringLength),
+                value: value, // Capture full string
                 length: value.length,
-                truncated: value.length > config.maxStringLength
+                truncated: false
               };
             }
             
@@ -220,6 +325,11 @@ class FunctionTracker {
             return originalFunc;
           }
           
+          // Check if this function was already injected or wrapped - don't double-wrap
+          if (originalFunc.__isInjected || (window.__injectedFunctions && window.__injectedFunctions.has(funcName))) {
+            return originalFunc; // Already has internal tracking
+          }
+          
           const wrappedFunction = function(...args) {
             // Prevent recursive wrapping calls
             if (wrappedFunction.__executing) {
@@ -236,31 +346,32 @@ class FunctionTracker {
             try {
               const callId = ++window.__functionTracker.callId;
               
-              // Simplified parameter capture to avoid recursion
+              // Full parameter capture with deep serialization
               let serializedParams = [];
               try {
-                serializedParams = args.map((arg, index) => ({
-                  paramIndex: index,
-                  type: typeof arg,
-                  value: arg !== null && arg !== undefined ? String(arg).substring(0, 100) : arg,
-                  isFunction: typeof arg === 'function',
-                  isObject: typeof arg === 'object' && arg !== null
-                }));
+                serializedParams = window.__serializeParams(args);
               } catch (e) {
-                serializedParams = [{ error: 'Parameter serialization failed' }];
+                serializedParams = [{ error: 'Parameter serialization failed', message: e.message }];
               }
               
-              // Simplified stack trace without deep introspection
+              // Full stack trace capture with safety limits
               let stackTrace = [];
               try {
                 const stack = new Error().stack;
-                stackTrace = stack ? stack.split('\n').slice(2, 7) : []; // Limit to 5 frames
+                if (stack) {
+                  const frames = stack.split('\n').slice(2);
+                  // Limit to 50 frames to prevent issues with detached frames or infinite recursion
+                  stackTrace = frames.slice(0, 50);
+                } else {
+                  stackTrace = [];
+                }
               } catch (e) {
-                stackTrace = ['Stack trace unavailable'];
+                stackTrace = ['Stack trace unavailable: ' + e.message];
               }
               
               // Log function call with minimal data to prevent recursion
               const callInfo = {
+                type: 'external_wrapper',
                 callId,
                 functionName: funcName,
                 objectName: obj && obj.constructor ? obj.constructor.name : 'unknown',
@@ -279,12 +390,13 @@ class FunctionTracker {
               // Call original function
               const result = originalFunc.apply(this, args);
               
-              // Capture basic result info
+              // Capture full result info with serialization
               try {
                 callInfo.resultType = typeof result;
                 callInfo.isPromise = result && typeof result.then === 'function';
+                callInfo.result = window.__serializeValue(result, 0, 3);
               } catch (e) {
-                // Ignore result capture errors
+                callInfo.resultError = e.message;
               }
               
               return result;
@@ -349,10 +461,13 @@ class FunctionTracker {
           ]);
           
           // Hijack fetch separately (it's a function, not a method)
+          // Skip if already injected
           if (!hijacked.has('fetch') && typeof window.fetch === 'function') {
-            originals.set('fetch', window.fetch);
-            window.fetch = window.__wrapFunction(window, 'fetch', originals.get('fetch'));
-            hijacked.add('fetch');
+            if (!window.__injectedFunctions || !window.__injectedFunctions.has('fetch')) {
+              originals.set('fetch', window.fetch);
+              window.fetch = window.__wrapFunction(window, 'fetch', originals.get('fetch'));
+              hijacked.add('fetch');
+            }
           }
           
           // Safe targets - avoid Object.prototype and other dangerous objects
@@ -395,6 +510,10 @@ class FunctionTracker {
           // Hijack specific timing functions safely
           ['setTimeout', 'setInterval', 'requestAnimationFrame'].forEach(funcName => {
             if (!hijacked.has(funcName) && typeof window[funcName] === 'function') {
+              // Skip if already injected
+              if (window.__injectedFunctions && window.__injectedFunctions.has(funcName)) {
+                return;
+              }
               try {
                 originals.set(funcName, window[funcName]);
                 window[funcName] = window.__wrapFunction(window, funcName, originals.get(funcName));
@@ -500,7 +619,35 @@ class FunctionTracker {
   }
 
   /**
-   * Track commonly used JavaScript functions
+   * Inject into commonly used JavaScript functions
+   * NOTE: This is now optional - the wrapper system is more reliable
+   */
+  async injectIntoCommonFunctions() {
+    const functionsToInject = [
+      'fetch',
+      'setTimeout',
+      'setInterval',
+      'requestAnimationFrame'
+    ];
+
+    console.log('Injecting tracking code into common functions (optional)...');
+    
+    for (const funcPath of functionsToInject) {
+      try {
+        const result = await this.injectIntoFunction(funcPath);
+        if (result.success) {
+          console.log(`✓ Injected into ${funcPath}`);
+        } else {
+          console.log(`ℹ Skipped ${funcPath}: ${result.error}`);
+        }
+      } catch (error) {
+        console.log(`ℹ Skipped ${funcPath}: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Track commonly used JavaScript functions (wrapper-based fallback)
    */
   async trackCommonFunctions() {
     await this.page.evaluate(() => {

@@ -419,11 +419,11 @@ async function processSingleSite(browser, url, siteQueues) {
     
     // Add page error handlers before navigation
     page.on('error', (error) => {
-      console.warn(`Page error: ${error.message}`);
+      console.warn(`Page error: ${error?.message || error || 'Unknown error'}`);
     });
     
     page.on('pageerror', (error) => {
-      console.warn(`Page script error: ${error.message}`);
+      console.warn(`Page script error: ${error?.message || error || 'Unknown script error'}`);
     });
     
     // If somehow we're still on an extension page, force navigate to about:blank first
