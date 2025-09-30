@@ -651,6 +651,16 @@ class FunctionTracker {
    */
   async trackCommonFunctions() {
     await this.page.evaluate(() => {
+      // Ensure tracker exists and is properly initialized
+      if (!window.__functionTracker) {
+        window.__initializeTracker();
+      }
+      
+      // Ensure originalFunctions Map exists
+      if (!window.__functionTracker.originalFunctions) {
+        window.__functionTracker.originalFunctions = new Map();
+      }
+      
       // Track fetch API with network request correlation
       if (window.fetch) {
         const originalFetch = window.fetch;
@@ -706,6 +716,11 @@ class FunctionTracker {
         const originalOpen = XMLHttpRequest.prototype.open;
         const originalSend = XMLHttpRequest.prototype.send;
         
+        // Ensure originalFunctions exists before using it
+        if (!window.__functionTracker.originalFunctions) {
+          window.__functionTracker.originalFunctions = new Map();
+        }
+        
         window.__functionTracker.originalFunctions.set('XMLHttpRequest.open', originalOpen);
         window.__functionTracker.originalFunctions.set('XMLHttpRequest.send', originalSend);
         
@@ -760,6 +775,10 @@ class FunctionTracker {
       domMethods.forEach(method => {
         if (document[method]) {
           const original = document[method];
+          // Ensure originalFunctions exists
+          if (!window.__functionTracker.originalFunctions) {
+            window.__functionTracker.originalFunctions = new Map();
+          }
           window.__functionTracker.originalFunctions.set(`document.${method}`, original);
           document[method] = window.__wrapFunction(document, `document.${method}`, original);
         }
@@ -770,6 +789,10 @@ class FunctionTracker {
       consoleMethods.forEach(method => {
         if (console[method]) {
           const original = console[method];
+          // Ensure originalFunctions exists
+          if (!window.__functionTracker.originalFunctions) {
+            window.__functionTracker.originalFunctions = new Map();
+          }
           window.__functionTracker.originalFunctions.set(`console.${method}`, original);
           console[method] = window.__wrapFunction(console, `console.${method}`, original);
         }
@@ -778,12 +801,20 @@ class FunctionTracker {
       // Track setTimeout and setInterval
       if (window.setTimeout) {
         const originalSetTimeout = window.setTimeout;
+        // Ensure originalFunctions exists
+        if (!window.__functionTracker.originalFunctions) {
+          window.__functionTracker.originalFunctions = new Map();
+        }
         window.__functionTracker.originalFunctions.set('setTimeout', originalSetTimeout);
         window.setTimeout = window.__wrapFunction(window, 'setTimeout', originalSetTimeout);
       }
 
       if (window.setInterval) {
         const originalSetInterval = window.setInterval;
+        // Ensure originalFunctions exists
+        if (!window.__functionTracker.originalFunctions) {
+          window.__functionTracker.originalFunctions = new Map();
+        }
         window.__functionTracker.originalFunctions.set('setInterval', originalSetInterval);
         window.setInterval = window.__wrapFunction(window, 'setInterval', originalSetInterval);
       }
