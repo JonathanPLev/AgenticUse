@@ -1,0 +1,8 @@
+{
+  "error": "Protocol error (Network.getResponseBody): No data found for resource with given identifier",
+  "url": "https://mc.yandex.com/clmap/51446871?page-url=https%3A%2F%2Fmail.ru%2F&pointer-click=rn%3A498313913%3Ax%3A16301%3Ay%3A39933%3At%3A299%3Ap%3A%3AX%3A995%3AY%3A2909&browser-info=u%3A1759127201311875677%3Av%3A2204%3Avf%3A81k5o1pwtl2zg7014vjzf8k4aa82j%3Arqnl%3A1%3Ast%3A1759127252&t=gdpr(14)ti(1)",
+  "status": 200,
+  "mimeType": "image/gif",
+  "timestamp": "2025-09-29T06:27:32.307Z",
+  "note": "Response body not available - common for cached, failed, redirect, or streaming responses"
+}
