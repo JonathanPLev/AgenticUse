@@ -194,6 +194,15 @@ class FunctionTracker {
 
         // Initialize tracker immediately
         window.__initializeTracker();
+        
+        // Add a backup initialization check
+        window.__ensureTrackerExists = function() {
+          if (!window.__functionTracker) {
+            console.warn('Function tracker missing, re-initializing...');
+            window.__initializeTracker();
+          }
+          return window.__functionTracker;
+        };
 
         // Auto-save tracker data every 2 seconds
         setInterval(() => {
@@ -653,7 +662,29 @@ class FunctionTracker {
     await this.page.evaluate(() => {
       // Ensure tracker exists and is properly initialized
       if (!window.__functionTracker) {
-        window.__initializeTracker();
+        // Try the backup initialization function first
+        if (typeof window.__ensureTrackerExists === 'function') {
+          window.__ensureTrackerExists();
+        } else if (typeof window.__initializeTracker === 'function') {
+          window.__initializeTracker();
+        } else {
+          // Fallback initialization if the functions don't exist
+          console.warn('Function tracker initialization functions not found, creating fallback tracker');
+          window.__functionTracker = {
+            callId: 0,
+            calls: [],
+            eventListeners: [],
+            functionToRequestMap: new Map(),
+            activeNetworkRequests: new Map(),
+            hijackedFunctions: new Set(),
+            originalFunctions: new Map(),
+            variableCapture: {
+              maxDepth: 5,
+              maxArrayLength: 100,
+              maxStringLength: 50000
+            }
+          };
+        }
       }
       
       // Ensure originalFunctions Map exists

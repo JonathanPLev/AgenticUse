@@ -203,11 +203,19 @@ async function enhancedInstrumentPage(page, queues) {
   const functionTracker = new FunctionTracker(page, functionTrackingQueue, networkQueue);
   await functionTracker.initialize();
   
+  // Wait a moment for the evaluateOnNewDocument script to be ready
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  
   // Set up wrapper-based function tracking (primary method)
   console.log('Setting up wrapper-based function tracking...');
-  await functionTracker.trackCommonFunctions();
-  await functionTracker.setupPeriodicCollection();
-  console.log('Wrapper-based function tracking initialized successfully');
+  try {
+    await functionTracker.trackCommonFunctions();
+    await functionTracker.setupPeriodicCollection();
+    console.log('Wrapper-based function tracking initialized successfully');
+  } catch (trackingError) {
+    console.warn('Function tracking initialization failed:', trackingError.message);
+    // Continue without function tracking - other instrumentation will still work
+  }
   
   // Initialize function injection (secondary method for user-defined functions)
   const functionInjector = new FunctionInjector(functionTrackingQueue);
@@ -360,7 +368,11 @@ async function enhancedInstrumentPage(page, queues) {
       
       // Enhanced function call correlation with detailed analysis and error handling
       const correlationPromise = page.evaluate((reqId, requestUrl, requestMethod) => {
-        const tracker = window.__functionTracker;
+        // Ensure tracker exists before using it
+        let tracker = window.__functionTracker;
+        if (!tracker && typeof window.__ensureTrackerExists === 'function') {
+          tracker = window.__ensureTrackerExists();
+        }
         if (!tracker) return null;
         
         // Get current stack trace to correlate with network request
@@ -590,8 +602,15 @@ async function enhancedInstrumentPage(page, queues) {
       
       // Get function call correlation and link with response with error handling
       page.evaluate((reqId) => {
-        const functionCallId = window.__functionTracker?.functionToRequestMap?.get(reqId);
-        const requestInfo = window.__functionTracker?.activeNetworkRequests?.get(reqId);
+        // Ensure tracker exists before using it
+        let tracker = window.__functionTracker;
+        if (!tracker && typeof window.__ensureTrackerExists === 'function') {
+          tracker = window.__ensureTrackerExists();
+        }
+        if (!tracker) return { functionCallId: null, requestInfo: null };
+        
+        const functionCallId = tracker.functionToRequestMap?.get(reqId);
+        const requestInfo = tracker.activeNetworkRequests?.get(reqId);
         return { functionCallId, requestInfo };
       }, requestId).then(correlation => {
         // Link network request with function tracking
